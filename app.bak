@@ -1,0 +1,683 @@
+// ====================================
+// KOI DASHBOARD - MAIN APPLICATION
+// File: js/app.js
+// ====================================
+
+const KoiApp = {
+    
+    // Stato applicazione
+    currentPage: 'dashboard',
+    isInitialized: false,
+    
+    // Dati globali
+    data: {
+        reservations: [],
+        customers: []
+    },
+
+    /**
+     * Inizializzazione applicazione
+     */
+    init: function() {
+        console.log('🚀 KOI Dashboard - Inizializzazione...');
+        
+        // Previeni inizializzazioni multiple
+        if (this.isInitialized) {
+            console.warn('App già inizializzata');
+            return;
+        }
+
+        // Setup iniziale
+        this.loadTheme();
+        this.setupEventListeners();
+        this.initializeComponents();
+        
+        // Inizializza sistema notifiche
+        this.initNotificationSystem();
+        
+        // Setup mobile
+        if (KoiUtils.isMobile()) {
+            this.setupMobileFeatures();
+        }
+        
+        // Salva timestamp cache per gestione stale data
+        this.updateCacheTimestamp();
+        
+        this.isInitialized = true;
+        console.log('✅ KOI Dashboard - Inizializzazione completata');
+    },
+
+    /**
+     * Aggiorna timestamp cache
+     */
+    updateCacheTimestamp: function() {
+        localStorage.setItem('koiCacheTime', new Date().toISOString());
+    },
+
+    /**
+     * Carica tema salvato
+     */
+    loadTheme: function() {
+        const savedTheme = KoiUtils.getCurrentTheme();
+        document.body.setAttribute('data-theme', savedTheme);
+        KoiUI.updateThemeToggle(savedTheme);
+    },
+
+    /**
+     * Setup event listeners globali
+     */
+    setupEventListeners: function() {
+        // Theme toggle
+        document.getElementById('themeToggle')?.addEventListener('click', () => {
+            KoiUI.toggleTheme();
+        });
+
+        // Navigation
+        document.querySelectorAll('.nav-item').forEach(item => {
+            item.addEventListener('click', function() {
+                const page = this.getAttribute('data-page');
+                KoiUI.navigateToPage(page);
+            });
+        });
+
+        // Click sul campanellino
+        document.getElementById('notificationBtn')?.addEventListener('click', function() {
+            NotificationSystem.showNotifications();
+        });
+
+        // Form nuova prenotazione
+        document.getElementById('newReservationForm')?.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            await KoiAPI.handleNewReservation(formData);
+        });
+
+        // Form modifica prenotazione
+        document.getElementById('editReservationForm')?.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            await KoiAPI.handleEditReservation(formData);
+        });
+
+        // Chiusura modal
+        document.querySelectorAll('.modal-close').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const modalId = this.getAttribute('data-modal');
+                KoiUI.closeModal(modalId);
+            });
+        });
+
+        // Filtri prenotazioni
+        document.getElementById('filterDate')?.addEventListener('change', () => {
+            KoiUI.filterReservations();
+        });
+        
+        document.getElementById('filterStatus')?.addEventListener('change', () => {
+            KoiUI.filterReservations();
+        });
+
+        // Ricerca clienti
+        document.getElementById('searchClient')?.addEventListener('input', (e) => {
+            KoiUI.searchClients(e);
+        });
+
+        // Data campo per nuova prenotazione
+        const dateField = document.querySelector('#newReservationForm [name="data"]');
+        if (dateField) {
+            dateField.addEventListener('change', () => {
+                KoiUI.updateTimeOptions();
+            });
+        }
+
+        // Data campo per modifica prenotazione
+        document.getElementById('editData')?.addEventListener('change', function() {
+            const currentTime = document.getElementById('editOrario').value;
+            KoiUI.updateEditTimeOptions(this.value, currentTime);
+        });
+
+        // Gestione blocchi orari
+        this.setupBlockManagement();
+
+        // Salva impostazioni
+        document.getElementById('saveSettingsBtn')?.addEventListener('click', () => {
+            KoiAPI.saveSettings();
+        });
+
+        // Listener per cambio orari apertura
+        ['lunchStart', 'lunchEnd', 'dinnerStart', 'dinnerEnd'].forEach(id => {
+            document.getElementById(id)?.addEventListener('change', () => {
+                if (document.getElementById('newReservationModal')?.classList.contains('active')) {
+                    KoiUI.updateTimeOptions();
+                }
+            });
+        });
+    },
+
+    /**
+     * Inizializza sistema notifiche
+     */
+    initNotificationSystem: function() {
+        console.log('🔔 Inizializzazione sistema notifiche...');
+        
+        // Controlla nuove prenotazioni ogni 30 secondi
+        setInterval(() => {
+            NotificationSystem.checkNewReservations();
+        }, 30000);
+
+        // Controlla all'avvio dopo 2 secondi (per dare tempo ai dati di caricarsi)
+        setTimeout(() => {
+            NotificationSystem.checkNewReservations();
+        }, 2000);
+    },
+
+    /**
+     * Setup gestione blocchi orari
+     */
+    setupBlockManagement: function() {
+        // Aggiungi blocco orario
+        document.getElementById('addBlockBtn')?.addEventListener('click', () => {
+            const dateISO = document.getElementById('blockDate').value;
+            const from = document.getElementById('blockFrom').value;
+            const to = document.getElementById('blockTo').value;
+            
+            if (!dateISO || !from || !to) {
+                KoiUI.showToast('Compila data e orari', 'error');
+                return;
+            }
+            
+            if (from >= to) {
+                KoiUI.showToast('Intervallo orario non valido', 'error');
+                return;
+            }
+
+            const dateStr = KoiUtils.formatDateForAPI(dateISO);
+            const slots = KoiUtils.toSlots(from, to);
+            const ex = KoiUtils.getExceptions();
+            ex[dateStr] = Array.from(new Set([...(ex[dateStr] || []), ...slots]));
+            KoiUtils.saveExceptions(ex);
+            KoiUI.renderBlockedList();
+            KoiUI.showToast(`Bloccati ${slots.length} slot per ${dateStr}`, 'success');
+            
+            // Reset form
+            document.getElementById('blockDate').value = '';
+            document.getElementById('blockFrom').selectedIndex = 0;
+            document.getElementById('blockTo').selectedIndex = 0;
+        });
+
+        // Chiudi tutto il giorno
+        document.getElementById('closeAllDayBtn')?.addEventListener('click', () => {
+            const dateISO = document.getElementById('blockDate').value;
+            if (!dateISO) {
+                KoiUI.showToast('Seleziona una data', 'error');
+                return;
+            }
+            
+            if (!confirm('Chiudere tutto il giorno? Tutte le prenotazioni per questa data saranno bloccate.')) {
+                return;
+            }
+            
+            const dateStr = KoiUtils.formatDateForAPI(dateISO);
+            const ex = KoiUtils.getExceptions();
+            ex[dateStr] = ['TUTTO'];
+            KoiUtils.saveExceptions(ex);
+            KoiUI.renderBlockedList();
+            KoiUI.showToast(`Chiuso tutto il giorno ${dateStr}`, 'success');
+            
+            document.getElementById('blockDate').value = '';
+        });
+
+        // Set min date per blocchi
+        const blockDateField = document.getElementById('blockDate');
+        if (blockDateField) {
+            blockDateField.min = KoiUtils.getTodayISO();
+        }
+    },
+
+    /**
+     * Inizializza componenti UI
+     */
+    initializeComponents: function() {
+        // Inizializza select orari
+        setTimeout(() => {
+            KoiUI.populateAllTimeSelects();
+            KoiUI.renderBlockedList();
+        }, 100);
+    },
+
+    /**
+     * Setup funzionalità mobile
+     */
+    setupMobileFeatures: function() {
+        console.log('📱 Setup funzionalità mobile...');
+        
+        // Pull-to-refresh viene inizializzato dopo
+        
+        // Anti-cache per fetch su mobile
+        this.setupMobileAntiCache();
+        
+        // Ottimizzazioni viewport iOS
+        if (KoiUtils.isIOS()) {
+            this.setupIOSOptimizations();
+        }
+    },
+
+    /**
+     * Setup anti-cache mobile
+     */
+    setupMobileAntiCache: function() {
+        const originalFetch = window.fetch;
+        window.fetch = function(url, options) {
+            if (typeof url === 'string' && url.includes('proxy.php')) {
+                url = KoiUtils.addCacheBuster(url);
+            }
+            return originalFetch(url, options);
+        };
+    },
+
+    /**
+     * Ottimizzazioni specifiche iOS
+     */
+    setupIOSOptimizations: function() {
+        // Previeni bounce scroll
+        document.body.addEventListener('touchmove', function(e) {
+            if (!e.target.closest('.content')) {
+                e.preventDefault();
+            }
+        }, { passive: false });
+
+        // Fix per 100vh su iOS
+        const setVH = () => {
+            const vh = window.innerHeight * 0.01;
+            document.documentElement.style.setProperty('--vh', `${vh}px`);
+        };
+        setVH();
+        window.addEventListener('resize', setVH);
+    },
+
+    /**
+     * Pulizia risorse (per cambio pagina o chiusura)
+     */
+    cleanup: function() {
+        console.log('🧹 Pulizia risorse...');
+        
+        // Distruggi grafici
+        if (window.KoiCharts) {
+            KoiCharts.destroyAllCharts();
+        }
+        
+        // Salva dati in cache con timestamp
+        const cacheData = {
+            ...this.data,
+            lastSaved: new Date().toISOString()
+        };
+        KoiUtils.saveToCache(cacheData);
+    },
+
+    /**
+     * Gestione errori globale
+     */
+    handleGlobalError: function(error, context) {
+        console.error(`[KOI Error - ${context}]:`, error);
+        
+        // Log per debugging
+        if (window.location.hostname === 'localhost') {
+            console.trace();
+        }
+        
+        // Notifica utente solo per errori critici
+        if (error.critical) {
+            KoiUI.showToast('Si è verificato un errore. Riprova.', 'error');
+        }
+    },
+
+    /**
+     * Debug info (solo development)
+     */
+    debug: function() {
+        console.group('🔍 KOI Dashboard Debug Info');
+        console.log('Version:', KOI_CONFIG.VERSION || '1.2.0');
+        console.log('Environment:', window.location.hostname);
+        console.log('Mobile:', KoiUtils.isMobile());
+        console.log('Theme:', KoiUtils.getCurrentTheme());
+        console.log('Reservations:', this.data.reservations.length);
+        console.log('Customers:', this.data.customers.length);
+        console.log('Current Page:', this.currentPage);
+        console.log('Config:', KOI_CONFIG);
+        console.groupEnd();
+    }
+};
+
+// ====================================
+// SISTEMA NOTIFICHE
+// ====================================
+
+const NotificationSystem = {
+    lastCheckTime: localStorage.getItem('lastNotificationCheck') || new Date().toISOString(),
+    newReservations: [],
+    notifiedIds: JSON.parse(localStorage.getItem('notifiedReservationIds') || '[]'),
+    
+    /**
+     * Controlla nuove prenotazioni
+     */
+    checkNewReservations: function() {
+        const reservations = window.KoiApp.data.reservations || [];
+        const newReservations = [];
+        
+        reservations.forEach(res => {
+            // Controlla solo prenotazioni confermate che non sono già state notificate
+            if (res.stato === 'Confermata' && !this.notifiedIds.includes(res.id)) {
+                // Se ha createdAt, usa quello, altrimenti considera solo quelle future
+                if (res.createdAt) {
+                    const createdAt = new Date(res.createdAt);
+                    const lastCheck = new Date(this.lastCheckTime);
+                    if (createdAt > lastCheck) {
+                        newReservations.push(res);
+                    }
+                } else {
+                    // Se non ha createdAt, controlla solo se è una data futura (probabilmente nuova)
+                    const resDate = new Date(res.data);
+                    const now = new Date();
+                    if (resDate > now) {
+                        // Controlla se è stata aggiunta di recente confrontando con l'ultimo check
+                        const lastCheck = new Date(this.lastCheckTime);
+                        const timeDiff = now - lastCheck;
+                        // Solo se l'ultimo check è stato fatto negli ultimi 5 minuti
+                        if (timeDiff < 5 * 60 * 1000) {
+                            newReservations.push(res);
+                        }
+                    }
+                }
+            }
+        });
+        
+        // Aggiorna solo se ci sono effettivamente nuove prenotazioni
+        if (newReservations.length > 0) {
+            this.newReservations = newReservations;
+            this.updateBadge();
+            
+            // Aggiungi gli ID alle notifiche già viste
+            newReservations.forEach(res => {
+                if (!this.notifiedIds.includes(res.id)) {
+                    this.notifiedIds.push(res.id);
+                }
+            });
+            localStorage.setItem('notifiedReservationIds', JSON.stringify(this.notifiedIds));
+            
+            // Mostra toast solo per nuove prenotazioni reali
+            KoiUI.showToast(`🔔 ${newReservations.length} nuove prenotazioni!`, 'info');
+            
+            // Fai pulsare il badge
+            const badge = document.getElementById('notificationBadge');
+            if (badge) {
+                badge.classList.add('pulse');
+                setTimeout(() => badge.classList.remove('pulse'), 3000);
+            }
+        } else {
+            // Se non ci sono nuove, assicurati che il badge sia nascosto
+            this.newReservations = [];
+            this.updateBadge();
+        }
+        
+        return newReservations;
+    },
+    
+    /**
+     * Aggiorna badge campanellino
+     */
+    updateBadge: function() {
+        const badge = document.getElementById('notificationBadge');
+        if (badge) {
+            const count = this.newReservations.length;
+            badge.textContent = count;
+            badge.style.display = count > 0 ? 'block' : 'none';
+        }
+    },
+    
+    /**
+     * Mostra popup notifiche
+     */
+    showNotifications: function() {
+        if (this.newReservations.length === 0) {
+            KoiUI.showToast('Nessuna nuova prenotazione', 'info');
+            return;
+        }
+        
+        // Crea modal per mostrare le nuove prenotazioni
+        const modal = document.createElement('div');
+        modal.className = 'notification-modal';
+        modal.innerHTML = `
+            <div class="notification-modal-content">
+                <div class="notification-modal-header">
+                    <h3>Nuove Prenotazioni (${this.newReservations.length})</h3>
+                    <button class="modal-close" onclick="NotificationSystem.closeNotifications()">×</button>
+                </div>
+                <div class="notification-modal-body">
+                    ${this.newReservations.map(res => {
+                        const date = new Date(res.data);
+                        const dateStr = date.toLocaleDateString('it-IT');
+                        return `
+                            <div class="notification-item" onclick="NotificationSystem.openReservation(${res.id})">
+                                <div class="notification-item-header">
+                                    <strong>${res.nome} ${res.cognome}</strong>
+                                    <span class="notification-time">${res.orario}</span>
+                                </div>
+                                <div class="notification-item-details">
+                                    📅 ${dateStr} | 👥 ${res.persone} persone
+                                    ${res.telefono ? `| 📞 ${res.telefono}` : ''}
+                                </div>
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
+                <div class="notification-modal-footer">
+                    <button class="btn btn-primary" onclick="NotificationSystem.markAllAsRead()">
+                        Segna tutte come lette
+                    </button>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(modal);
+        setTimeout(() => modal.classList.add('active'), 10);
+    },
+    
+    /**
+     * Chiudi popup notifiche
+     */
+    closeNotifications: function() {
+        const modal = document.querySelector('.notification-modal');
+        if (modal) {
+            modal.classList.remove('active');
+            setTimeout(() => modal.remove(), 300);
+        }
+    },
+    
+    /**
+     * Apri singola prenotazione
+     */
+    openReservation: function(id) {
+        // Rimuovi questa prenotazione dalle nuove
+        this.newReservations = this.newReservations.filter(res => res.id !== id);
+        this.updateBadge();
+        
+        this.closeNotifications();
+        // Vai alla pagina prenotazioni
+        KoiUI.navigateToPage('reservations');
+        // Evidenzia la prenotazione
+        setTimeout(() => {
+            const card = document.querySelector(`[data-reservation-id="${id}"]`);
+            if (card) {
+                card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                card.style.animation = 'highlight 2s ease';
+            }
+        }, 300);
+    },
+    
+    /**
+     * Segna tutte come lette
+     */
+    markAllAsRead: function() {
+        // Aggiorna il timestamp
+        this.lastCheckTime = new Date().toISOString();
+        localStorage.setItem('lastNotificationCheck', this.lastCheckTime);
+        
+        // Svuota le nuove prenotazioni
+        this.newReservations = [];
+        this.updateBadge();
+        
+        // Mantieni gli ID notificati per non rinotificare
+        localStorage.setItem('notifiedReservationIds', JSON.stringify(this.notifiedIds));
+        
+        this.closeNotifications();
+        KoiUI.showToast('✅ Notifiche cancellate', 'success');
+    },
+    
+    /**
+     * Reset completo notifiche (per debug)
+     */
+    resetNotifications: function() {
+        this.lastCheckTime = new Date().toISOString();
+        this.newReservations = [];
+        this.notifiedIds = [];
+        localStorage.setItem('lastNotificationCheck', this.lastCheckTime);
+        localStorage.setItem('notifiedReservationIds', '[]');
+        this.updateBadge();
+        console.log('Sistema notifiche resettato');
+    }
+};
+
+// Esporta globalmente
+window.NotificationSystem = NotificationSystem;
+
+// ====================================
+// INIZIALIZZAZIONE ULTRA-OTTIMIZZATA
+// ====================================
+
+window.onload = function() {
+    console.time('⚡ App Init');
+    
+    // STEP 1: Inizializza UI immediatamente (mostra dashboard vuota con skeleton)
+    KoiApp.init();
+    KoiUI.init();
+    KoiUI.showPage('dashboard');
+    
+    // STEP 2: Controlla cache e carica dati
+    const cached = KoiUtils.loadFromCache();
+    let hasCache = false;
+    
+    if (cached && cached.reservations && cached.reservations.length > 0) {
+        console.log('📦 Cache trovata, carico istantaneamente!');
+        hasCache = true;
+        
+        // Usa i dati cached SUBITO
+        window.KoiApp.data.reservations = cached.reservations;
+        window.KoiApp.data.customers = cached.customers || [];
+        
+        // Rimuovi skeleton e mostra dati reali
+        KoiUI.updateKPIs();
+        KoiUI.updateRecentReservations();
+        KoiUI.updateNotificationBadge();
+        
+        // Invia evento che i dati sono pronti (rimuove loading screen)
+        window.dispatchEvent(new Event('koiDataLoaded'));
+        
+        // Aggiorna cache timestamp
+        if (cached.lastSaved) {
+            localStorage.setItem('koiCacheTime', cached.lastSaved);
+        }
+        
+        // Carica dati freschi in background (senza indicatore visivo)
+        setTimeout(() => {
+            KoiAPI.loadDashboardData(false).then(() => {
+                console.log('✅ Dati freschi caricati in background');
+                KoiApp.updateCacheTimestamp();
+            });
+        }, 1000);
+        
+    } else {
+        // Prima volta: carica dati immediatamente
+        console.log('🆕 Prima volta, carico dati...');
+        
+        KoiAPI.loadDashboardData(true).then((success) => {
+            if (success) {
+                // Invia evento che i dati sono pronti
+                window.dispatchEvent(new Event('koiDataLoaded'));
+                KoiApp.updateCacheTimestamp();
+            }
+        });
+    }
+    
+    // STEP 3: Lazy load dei grafici (non critici)
+    setTimeout(() => {
+        // I grafici verranno caricati dal lazy loading in index.html
+        console.log('📊 Grafici pronti per lazy loading');
+    }, hasCache ? 2000 : 3000);
+    
+    // STEP 4: Setup features secondarie (molto dopo)
+    setTimeout(() => {
+        KoiAPI.initAutoRefresh();
+        if (KoiUtils.isMobile()) {
+            KoiAPI.setupPullToRefresh();
+        }
+    }, 1000);
+    
+    console.timeEnd('⚡ App Init');
+};
+
+// ====================================
+// GESTIONE ERRORI E CLEANUP
+// ====================================
+
+// Gestione errori globale
+window.addEventListener('error', function(e) {
+    KoiApp.handleGlobalError(e.error, 'Window Error');
+});
+
+// Salva dati prima di chiudere
+window.addEventListener('beforeunload', function() {
+    KoiApp.cleanup();
+});
+
+// Refresh on focus (se configurato)
+document.addEventListener('visibilitychange', function() {
+    if (!document.hidden && window.KOI_CONFIG?.CACHE_SETTINGS?.REFRESH_ON_FOCUS) {
+        const lastRefresh = localStorage.getItem('koiLastRefresh');
+        const now = Date.now();
+        
+        // Refresh solo se sono passati almeno 30 secondi
+        if (!lastRefresh || (now - parseInt(lastRefresh)) > 30000) {
+            console.log('🔄 App tornata in focus - refresh dati');
+            localStorage.setItem('koiLastRefresh', now.toString());
+            
+            if (window.KoiAPI && window.KoiApp.data.reservations.length > 0) {
+                KoiAPI.loadDashboardData(false);
+            }
+        }
+    }
+});
+
+// FIX DEFINITIVO DATA FILTRO
+window.addEventListener('DOMContentLoaded', function() {
+    // Controlla ogni 100ms finché non trova il campo
+    const checkAndSetDate = setInterval(function() {
+        const filterDate = document.getElementById('filterDate');
+        if (filterDate) {
+            if (!filterDate.value) {
+                const today = new Date();
+                const year = today.getFullYear();
+                const month = String(today.getMonth() + 1).padStart(2, '0');
+                const day = String(today.getDate()).padStart(2, '0');
+                filterDate.value = `${year}-${month}-${day}`;
+                console.log('Data filtro impostata:', filterDate.value);
+            }
+            clearInterval(checkAndSetDate); // Ferma il controllo una volta impostata
+        }
+    }, 100);
+    
+    // Ferma comunque dopo 5 secondi per sicurezza
+    setTimeout(() => clearInterval(checkAndSetDate), 5000);
+});
+
+// Esporta per debugging in console
+window.KoiApp = KoiApp;
+console.log('💡 Tip: Usa KoiApp.debug() nella console per info di debug');

@@ -1,0 +1,55 @@
+# ====================================
+# SICUREZZA DASHBOARD KOI
+# File: .htaccess
+# ====================================
+
+# Previeni listing directory
+Options -Indexes
+
+# Proteggi file sensibili
+<FilesMatch "\.(htaccess|htpasswd|ini|log|sh|sql|bak|config\.js)$">
+    Order Allow,Deny
+    Deny from all
+</FilesMatch>
+
+# Headers di sicurezza
+<IfModule mod_headers.c>
+    Header set X-Content-Type-Options "nosniff"
+    Header set X-Frame-Options "SAMEORIGIN"
+    Header set X-XSS-Protection "1; mode=block"
+    Header set Referrer-Policy "strict-origin-when-cross-origin"
+    Header set Content-Security-Policy "upgrade-insecure-requests"
+</IfModule>
+
+# Cache per performance
+<IfModule mod_expires.c>
+    ExpiresActive On
+    ExpiresByType text/html "access plus 1 hour"
+    ExpiresByType text/css "access plus 1 week"
+    ExpiresByType application/javascript "access plus 1 week"
+    ExpiresByType image/jpeg "access plus 1 month"
+    ExpiresByType image/png "access plus 1 month"
+    ExpiresByType image/svg+xml "access plus 1 month"
+</IfModule>
+
+# Comprimi risorse
+<IfModule mod_deflate.c>
+    AddOutputFilterByType DEFLATE text/html
+    AddOutputFilterByType DEFLATE text/css
+    AddOutputFilterByType DEFLATE application/javascript
+    AddOutputFilterByType DEFLATE application/json
+</IfModule>
+
+# Rewrite rules
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    
+    # Forza HTTPS (compatibile con proxy come Cloudflare)
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Se non è già HTTPS, forza il redirect
+    RewriteCond %{HTTPS} !=on
+    RewriteCond %{HTTP:X-Forwarded-Proto} !https
+    RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+</IfModule>

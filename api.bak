@@ -1,0 +1,572 @@
+// ====================================
+// KOI DASHBOARD - API MANAGEMENT
+// Con fix per coerenza stati e date uniformi
+// ====================================
+
+const KoiAPI = {
+    
+    // Cache per evitare chiamate ripetute
+    cache: {
+        lastFetch: null,
+        data: null,
+        ttl: 5000 // 5 secondi di cache minima
+    },
+
+    // Flag per prevenire operazioni multiple
+    _deletingReservation: false,
+    _savingReservation: false,
+
+    /**
+     * Carica dati dashboard dall'API
+     */
+    loadDashboardData: async function(showToastOnLoad = true) {
+        if (!window.KOI_CONFIG) {
+            console.error('❌ KOI_CONFIG non definito');
+            KoiUI.showToast('⚠️ Errore configurazione', 'error');
+            return false;
+        }
+        
+        try {
+            console.log('Caricamento dati da API...');
+            
+            let url = `${KOI_CONFIG.API_URL}?token=${KOI_CONFIG.API_TOKEN}&action=lista`;
+            if (KoiUtils.isMobile()) {
+                url = KoiUtils.addCacheBuster(url);
+            }
+            
+            const response = await fetch(url);
+            
+            if (!response || !response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            
+            const data = await response.json();
+            console.log('Dati ricevuti:', data);
+            
+            let reservations = [];
+            
+            if (data) {
+                if (data.success && data.data) {
+                    reservations = data.data;
+                } else if (Array.isArray(data)) {
+                    reservations = data;
+                } else if (data.reservations) {
+                    reservations = data.reservations;
+                } else if (!data.success && data.error) {
+                    console.error('API Error:', data.error);
+                    KoiUI.showToast('⚠️ Server: ' + data.error, 'error');
+                    return false;
+                }
+            }
+            
+            if (!Array.isArray(reservations)) {
+                console.warn('Dati non validi ricevuti:', reservations);
+                reservations = [];
+            }
+            
+            // ===== NUOVO: UNIFORMA DATE SUBITO =====
+            reservations.forEach(r => {
+                if (r.data && window.KoiFilters) {
+                    r.data = KoiFilters.formatDateForFilter(r.data);
+                }
+            });
+            
+            window.KoiApp.data.reservations = reservations;
+            console.log('✅ Prenotazioni caricate:', reservations.length);
+            
+            if (reservations.length > 0 || !window._hasLoadedOnce) {
+                KoiUI.updateKPIs();
+                KoiUI.updateRecentReservations();
+                KoiUI.updateNotificationBadge();
+                
+                if (window.KoiCharts && 
+                    typeof window.KoiCharts.updateCharts === 'function' && 
+                    window.KoiCharts.instances && 
+                    Object.keys(window.KoiCharts.instances).length > 0) {
+                    try {
+                        console.log('📊 Aggiornamento grafici...');
+                        KoiCharts.updateCharts();
+                    } catch (chartError) {
+                        console.warn('Errore aggiornamento grafici:', chartError);
+                    }
+                }
+
+                if (window.KoiApp.currentPage === 'reservations') {
+                    KoiUI.loadReservations();
+                }
+                if (window.KoiApp.currentPage === 'customers') {
+                    KoiUI.loadCustomers();
+                }
+
+                window._hasLoadedOnce = true;
+            }
+
+            if (showToastOnLoad && !window._hasShownInitialToast) {
+                if (reservations.length > 0) {
+                    KoiUI.showToast(`✅ Caricate ${reservations.length} prenotazioni`, 'success');
+                } else {
+                    KoiUI.showToast('ℹ️ Nessuna prenotazione presente', 'info');
+                }
+                window._hasShownInitialToast = true;
+            }
+            
+            if (reservations.length > 0) {
+                KoiUtils.saveToCache({
+                    reservations: reservations,
+                    customers: window.KoiApp.data.customers || [],
+                    lastSync: new Date().toISOString()
+                });
+            }
+            
+            return true;
+            
+        } catch (error) {
+            console.error('❌ Error loading data:', error);
+            
+            // Prova cache offline
+            try {
+                const cached = KoiUtils.loadFromCache();
+                if (cached && cached.reservations && cached.reservations.length > 0) {
+                    // ===== UNIFORMA DATE ANCHE DALLA CACHE =====
+                    cached.reservations.forEach(r => {
+                        if (r.data && window.KoiFilters) {
+                            r.data = KoiFilters.formatDateForFilter(r.data);
+                        }
+                    });
+                    
+                    window.KoiApp.data.reservations = cached.reservations;
+                    console.log('📦 Caricato dalla cache offline:', cached.reservations.length);
+                    
+                    if (showToastOnLoad) {
+                        KoiUI.showToast('⚠️ Modalità offline', 'warning');
+                    }
+                    
+                    KoiUI.updateKPIs();
+                    KoiUI.updateRecentReservations();
+                    KoiUI.updateNotificationBadge();
+                    
+                    return true;
+                }
+            } catch (cacheError) {
+                console.error('❌ Errore lettura cache:', cacheError);
+            }
+            
+            if (showToastOnLoad) {
+                KoiUI.showToast('❌ Errore connessione', 'error');
+            }
+            
+            return false;
+        }
+    },
+
+    /**
+     * Crea nuova prenotazione
+     */
+    handleNewReservation: async function(formData) {
+        if (this._savingReservation) return false;
+        this._savingReservation = true;
+        
+        const data = {
+            action: 'crea',
+            nome: formData.get('nome'),
+            cognome: formData.get('cognome'),
+            telefono: formData.get('telefono'),
+            email: formData.get('email'),
+            data: KoiUtils.formatDateForAPI(formData.get('data')),
+            orario: formData.get('orario'),
+            persone: formData.get('persone'),
+            note: formData.get('note'),
+            origine: 'Dashboard',
+            createdAt: new Date().toISOString()
+        };
+        
+        try {
+            const response = await fetch(KOI_CONFIG.API_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ...data, token: KOI_CONFIG.API_TOKEN })
+            });
+            
+            const result = await response.json();
+            
+            if (result.success) {
+                KoiUI.showToast('✅ Prenotazione creata!', 'success');
+                
+                document.getElementById('newReservationForm').reset();
+                
+                if (result.id) {
+                    const newReservation = {
+                        ...data,
+                        id: result.id,
+                        stato: 'Confermata'
+                    };
+                    
+                    // ===== UNIFORMA DATA NUOVA PRENOTAZIONE =====
+                    if (window.KoiFilters) {
+                        newReservation.data = KoiFilters.formatDateForFilter(newReservation.data);
+                    }
+                    
+                    window.KoiApp.data.reservations.push(newReservation);
+                    
+                    // ===== FORZA RIAPPLICAZIONE FILTRI =====
+                    if (window.KoiFilters && window.KoiFilters._initialized) {
+                        KoiFilters.forceConsistentState();
+                        KoiFilters.applyFilters();
+                    }
+                    
+                    KoiUI.updateKPIs();
+                    KoiUI.updateRecentReservations();
+                }
+                
+                setTimeout(() => {
+                    this.loadDashboardData(false);
+                }, 1000);
+                
+                if (KOI_CONFIG.GREEN_API?.enabled && result.id) {
+                    this.sendWhatsAppConfirmation(result.id, data);
+                }
+                
+                return true;
+            } else {
+                KoiUI.showToast('❌ Errore: ' + (result.error || 'Creazione fallita'), 'error');
+                return false;
+            }
+        } catch (error) {
+            KoiUI.showToast('❌ Errore nella creazione', 'error');
+            console.error('Errore creazione:', error);
+            return false;
+        } finally {
+            this._savingReservation = false;
+        }
+    },
+
+    /**
+     * Modifica prenotazione - APRE IL MODAL
+     */
+    editReservation: function(id) {
+        const reservation = window.KoiApp.data.reservations.find(r => r.id === id);
+        if (!reservation) {
+            KoiUI.showToast('Prenotazione non trovata', 'error');
+            return;
+        }
+
+        document.getElementById('editId').value = reservation.id;
+        document.getElementById('editNome').value = reservation.nome || '';
+        document.getElementById('editCognome').value = reservation.cognome || '';
+        document.getElementById('editTelefono').value = reservation.telefono || '';
+        document.getElementById('editEmail').value = reservation.email || '';
+        
+        // Converti data da DD/MM/YYYY a YYYY-MM-DD per input date
+        const dataParts = reservation.data.split('/');
+        if (dataParts.length === 3) {
+            const dataISO = `${dataParts[2]}-${dataParts[1].padStart(2, '0')}-${dataParts[0].padStart(2, '0')}`;
+            document.getElementById('editData').value = dataISO;
+        }
+        
+        document.getElementById('editPersone').value = reservation.persone || '';
+        document.getElementById('editNote').value = reservation.note || '';
+        document.getElementById('editStato').value = reservation.stato || 'Confermata';
+        
+        const currentTime = window.KoiFilters ? KoiFilters.formatTime(reservation.orario) : reservation.orario;
+        if (KoiUI.updateEditTimeOptions) {
+            KoiUI.updateEditTimeOptions(document.getElementById('editData').value, currentTime);
+        }
+        
+        document.getElementById('editReservationModal').classList.add('active');
+    },
+
+    /**
+     * Gestisce modifica prenotazione - CON FIX COERENZA
+     */
+    handleEditReservation: async function(formData) {
+        const submitBtn = document.querySelector('#editReservationForm button[type="submit"]');
+        const originalText = submitBtn?.textContent;
+        
+        try {
+            if (submitBtn) {
+                submitBtn.textContent = 'Salvando...';
+                submitBtn.disabled = true;
+            }
+            
+            const reservationData = {
+                action: 'update',
+                id: formData.get('id'),
+                nome: formData.get('nome'),
+                cognome: formData.get('cognome'),
+                telefono: formData.get('telefono'),
+                email: formData.get('email'),
+                data: this.formatDateForAPI ? this.formatDateForAPI(formData.get('data')) : formData.get('data'),
+                orario: formData.get('orario'),
+                persone: formData.get('persone'),
+                note: formData.get('note'),
+                stato: formData.get('stato')
+            };
+            
+            // ===== STEP 1: UNIFORMA DATA =====
+            if (window.KoiFilters) {
+                reservationData.data = KoiFilters.formatDateForFilter(reservationData.data);
+            }
+            
+            // ===== STEP 2: AGGIORNA DATI LOCALI =====
+            const existingReservation = window.KoiApp.data.reservations.find(r => r.id == reservationData.id);
+            if (existingReservation) {
+                Object.assign(existingReservation, {
+                    nome: reservationData.nome,
+                    cognome: reservationData.cognome,
+                    telefono: reservationData.telefono,
+                    email: reservationData.email,
+                    data: reservationData.data,
+                    orario: reservationData.orario,
+                    persone: reservationData.persone,
+                    note: reservationData.note,
+                    stato: reservationData.stato
+                });
+            }
+            
+            // ===== STEP 3: FORZA RIAPPLICAZIONE FILTRI =====
+            if (window.KoiFilters && window.KoiFilters._initialized) {
+                // Mantieni filtro oggi e status corretto
+                if (!KoiFilters.currentFilters.date && !KoiFilters.currentFilters.dateRange) {
+                    KoiFilters.currentFilters.date = new Date();
+                    KoiFilters.currentFilters.date.setHours(0,0,0,0);
+                }
+                KoiFilters.forceConsistentState();
+                KoiFilters.applyFilters();
+            }
+            
+            KoiUI.updateKPIs();
+            KoiUI.updateRecentReservations();
+            
+            // ===== STEP 4: CHIAMATA API =====
+            const response = await fetch('proxy.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(reservationData)
+            });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            
+            const result = await response.json();
+            
+            if (result.success) {
+                KoiUI.showToast('✅ Prenotazione aggiornata', 'success');
+                KoiUI.closeModal('editReservationModal');
+                this.updateLocalCache();
+            } else {
+                throw new Error(result.error || 'Errore durante il salvataggio');
+            }
+            
+        } catch (error) {
+            console.error('Errore modifica prenotazione:', error);
+            KoiUI.showToast('❌ Errore durante il salvataggio', 'error');
+            
+            setTimeout(() => {
+                this.loadDashboardData(false);
+            }, 1000);
+            
+        } finally {
+            if (submitBtn) {
+                submitBtn.textContent = originalText;
+                submitBtn.disabled = false;
+            }
+        }
+    },
+
+    /**
+     * Cancellazione con fix coerenza stati
+     */
+    deleteReservation: async function(id) {
+        if (this._deletingReservation) return false;
+        
+        if (!confirm('Cancellare questa prenotazione?')) return false;
+        
+        this._deletingReservation = true;
+        
+        try {
+            const card = document.querySelector(`[data-reservation-id="${id}"]`);
+            const reservation = window.KoiApp.data.reservations.find(r => r.id === id);
+            const originalState = reservation ? reservation.stato : null;
+            
+            // ===== STEP 1: FEEDBACK VISIVO =====
+            if (card) {
+                card.style.transition = 'all 0.3s ease';
+                card.style.opacity = '0.5';
+                card.style.transform = 'scale(0.95)';
+                
+                const currentStatus = window.KoiFilters?.currentFilters?.status || 'all';
+                if (currentStatus === 'Confermate' || currentStatus === 'all') {
+                    setTimeout(() => {
+                        card.style.transform = 'translateX(-100%)';
+                        card.style.opacity = '0';
+                    }, 150);
+                }
+            }
+            
+            // ===== STEP 2: AGGIORNA STATO LOCALE =====
+            if (reservation) {
+                reservation.stato = 'Cancellata';
+                
+                // ===== UNIFORMA DATA =====
+                if (window.KoiFilters) {
+                    reservation.data = KoiFilters.formatDateForFilter(reservation.data);
+                }
+            }
+            
+            // ===== STEP 3: FORZA RIAPPLICAZIONE FILTRI =====
+            if (window.KoiFilters && window.KoiFilters._initialized) {
+                // Mantieni filtro oggi e status corretto
+                if (!KoiFilters.currentFilters.date && !KoiFilters.currentFilters.dateRange) {
+                    KoiFilters.currentFilters.date = new Date();
+                    KoiFilters.currentFilters.date.setHours(0,0,0,0);
+                }
+                KoiFilters.forceConsistentState();
+                KoiFilters.applyFilters();
+            }
+            
+            KoiUI.updateKPIs();
+            KoiUI.updateRecentReservations();
+            
+            // ===== STEP 4: CHIAMATA API =====
+            const response = await fetch('proxy.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'delete',
+                    id: id
+                })
+            });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            
+            const result = await response.json();
+            
+            if (result.success) {
+                KoiUI.showToast('✅ Prenotazione cancellata', 'success');
+                
+                if (reservation && reservation.telefono) {
+                    this.sendWhatsAppCancellation(reservation);
+                }
+                
+                this.updateLocalCache();
+                
+            } else {
+                throw new Error(result.error || 'Errore server');
+            }
+            
+        } catch (error) {
+            console.error('Errore cancellazione:', error);
+            
+            // ===== ROLLBACK =====
+            if (reservation && originalState) {
+                reservation.stato = originalState;
+            }
+            
+            if (card) {
+                card.style.opacity = '1';
+                card.style.transform = 'scale(1)';
+            }
+            
+            // ===== ROLLBACK FILTRI =====
+            if (window.KoiFilters && window.KoiFilters._initialized) {
+                KoiFilters.forceConsistentState();
+                KoiFilters.applyFilters();
+            }
+            
+            KoiUI.showToast('❌ Errore durante la cancellazione', 'error');
+            
+        } finally {
+            this._deletingReservation = false;
+        }
+        
+        return true;
+    },
+
+    /**
+     * Invio notifica WhatsApp cancellazione
+     */
+    sendWhatsAppCancellation: async function(reservation) {
+        try {
+            const message = `🚫 *PRENOTAZIONE CANCELLATA*\n\n` +
+                           `👤 ${reservation.nome} ${reservation.cognome}\n` +
+                           `📅 ${reservation.data} alle ${window.KoiFilters ? KoiFilters.formatTime(reservation.orario) : reservation.orario}\n` +
+                           `👥 ${reservation.persone} persone\n\n` +
+                           `La prenotazione è stata cancellata dal sistema.`;
+            
+            const response = await fetch('whatsapp-api.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    phone: reservation.telefono,
+                    message: message
+                })
+            });
+            
+            if (response.ok) {
+                console.log('✅ Notifica WhatsApp cancellazione inviata');
+            }
+        } catch (error) {
+            console.warn('Errore invio WhatsApp:', error);
+        }
+    },
+
+    /**
+     * Aggiornamento cache locale
+     */
+    updateLocalCache: function() {
+        const cacheData = {
+            reservations: window.KoiApp.data.reservations,
+            customers: window.KoiApp.data.customers,
+            lastSaved: new Date().toISOString()
+        };
+        
+        try {
+            localStorage.setItem('koiDashboardCache', JSON.stringify(cacheData));
+            localStorage.setItem('koiCacheTime', cacheData.lastSaved);
+        } catch (error) {
+            console.warn('Errore salvataggio cache:', error);
+        }
+    },
+
+    /**
+     * Altre funzioni esistenti...
+     */
+    sendWhatsAppConfirmation: async function(reservationId, data) {
+        // Implementazione esistente...
+    },
+
+    sendWhatsApp: function(id) {
+        // Implementazione esistente...
+    },
+
+    saveSettings: function() {
+        // Implementazione esistente...
+    },
+
+    initAutoRefresh: function() {
+        setInterval(() => {
+            if (window.KoiApp.currentPage === 'dashboard') {
+                console.log('🔁 Auto-refresh dashboard...');
+                this.loadDashboardData(false);
+            }
+        }, KOI_CONFIG.DASHBOARD?.refreshInterval || 30000);
+
+        if (KoiUtils.isMobile()) {
+            setInterval(() => {
+                this.loadDashboardData(false);
+            }, 20000);
+        }
+    },
+
+    setupPullToRefresh: function() {
+        // Implementazione esistente per mobile...
+    }
+};
+
+// Esporta per uso globale
+window.KoiAPI = KoiAPI;
+
+console.log('✅ API con coerenza stati e date uniformi caricato');

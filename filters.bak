@@ -1,0 +1,453 @@
+// ====================================
+// KOI DASHBOARD - FILTERS FINAL VERSION
+// Con fix per coerenza stati, date uniformi e riapplicazione forzata
+// ====================================
+
+console.log('📜 filters.js caricato - v.final-fixed-consistent');
+
+const KoiFilters = {
+    _initialized: false,
+    
+    currentFilters: {
+        status: 'all',
+        date: null,
+        dateRange: null,
+        searchText: ''
+    },
+
+    // ===== PARSER UNIVERSALE =====
+    parseReservationDate(str) {
+        if (!str) return new Date();
+
+        // Formato gg/mm/aaaa
+        if (str.includes('/')) {
+            const [d, m, y] = str.split('/').map(Number);
+            if (!isNaN(d) && !isNaN(m) && !isNaN(y)) {
+                return new Date(y, m - 1, d, 12, 0, 0);
+            }
+        }
+
+        // ISO o yyyy-mm-dd
+        const parsed = new Date(str);
+        if (!isNaN(parsed.getTime())) {
+            parsed.setHours(12, 0, 0, 0);
+            return parsed;
+        }
+
+        console.warn('⚠️ Data non valida ricevuta:', str);
+        return new Date();
+    },
+
+    // ===== NUOVO: UNIFORMA FORMATO DATE =====
+    formatDateForFilter: function(dateStr) {
+        if (!dateStr) return '';
+        
+        const date = this.parseReservationDate(dateStr);
+        return `${String(date.getDate()).padStart(2,'0')}/${String(date.getMonth()+1).padStart(2,'0')}/${date.getFullYear()}`;
+    },
+
+    // ===== FORMATTAZIONE ORARIO =====
+    formatTime: function(timeStr) {
+        if (!timeStr) return '';
+
+        // Se è già in formato HH:MM, restituiscilo così
+        if (/^\d{2}:\d{2}$/.test(timeStr)) {
+            return timeStr;
+        }
+
+        // Se è formato ISO (2025-09-10T07:00:00.000Z)
+        if (timeStr.includes('T')) {
+            try {
+                const date = new Date(timeStr);
+                return date.toLocaleTimeString('it-IT', {
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
+            } catch (e) {
+                console.warn('Errore parsing orario ISO:', timeStr);
+                return timeStr;
+            }
+        }
+
+        return timeStr;
+    },
+
+    // ===== FORMATTAZIONE DATA =====
+    formatDate: function(dateStr) {
+        if (!dateStr) return '';
+
+        try {
+            const date = this.parseReservationDate(dateStr);
+            return date.toLocaleDateString('it-IT', {
+                weekday: 'short',
+                day: '2-digit',
+                month: '2-digit'
+            });
+        } catch (e) {
+            console.warn('Errore parsing data:', dateStr);
+            return dateStr;
+        }
+    },
+
+    // ===== NUOVO: FORZA STATO COERENTE =====
+    forceConsistentState: function() {
+        // Assicurati che esista sempre un filtro attivo
+        if (!this.currentFilters.date && !this.currentFilters.dateRange) {
+            console.log('🔧 Forzo filtro OGGI per coerenza');
+            this.currentFilters.date = new Date();
+            this.currentFilters.date.setHours(0, 0, 0, 0);
+            
+            // Attiva visivamente il bottone Oggi
+            document.querySelectorAll('.quick-filters button').forEach(b => b.classList.remove('active'));
+            const todayBtn = document.querySelector('[data-filter="today"]');
+            if (todayBtn) todayBtn.classList.add('active');
+        }
+        
+        // Assicurati che il tab status sia visivamente corretto
+        const activeTab = document.querySelector(`.filter-tabs .tab[data-status="${this.currentFilters.status}"]`);
+        if (activeTab) {
+            document.querySelectorAll('.filter-tabs .tab').forEach(t => t.classList.remove('active'));
+            activeTab.classList.add('active');
+        }
+    },
+
+    init() {
+        if (this._initialized) {
+            console.log('⚠️ KoiFilters già inizializzato');
+            return;
+        }
+        
+        console.log('🔵 KoiFilters.init() - START');
+        
+        const tabs = document.querySelectorAll('.filter-tabs .tab');
+        const buttons = document.querySelectorAll('.quick-filters button');
+        const search = document.getElementById('searchReservations');
+        
+        // TAB STATI
+        tabs.forEach(tab => {
+            tab.onclick = (e) => {
+                e.preventDefault();
+                tabs.forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+                this.currentFilters.status = tab.dataset.status;
+                this.applyFilters();
+            };
+        });
+        
+        // FILTRI RAPIDI
+        buttons.forEach(btn => {
+            btn.onclick = (e) => {
+                e.preventDefault();
+                buttons.forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                this.applyQuickFilter(btn.dataset.filter);
+            };
+        });
+        
+        // RICERCA
+        if (search) {
+            search.oninput = (e) => {
+                this.currentFilters.searchText = e.target.value.toLowerCase();
+                this.applyFilters();
+            };
+        }
+        
+        // IMPOSTA DEFAULT: OGGI
+        const todayBtn = document.querySelector('[data-filter="today"]');
+        if (todayBtn) todayBtn.classList.add('active');
+        
+        // Imposta oggi come filtro default
+        this.currentFilters.date = new Date();
+        this.currentFilters.date.setHours(0, 0, 0, 0);
+        
+        this._initialized = true;
+        
+        // ASSICURATI che il filtro oggi sia applicato
+        console.log('✅ Filtro iniziale: OGGI -', this.currentFilters.date.toLocaleDateString('it-IT'));
+        this.applyFilters();
+        
+        console.log('✅ KoiFilters inizializzato con filtro OGGI attivo');
+    },
+
+    applyQuickFilter(type) {
+        // Reset SOLO date, mantieni status e search
+        this.currentFilters.date = null;
+        this.currentFilters.dateRange = null;
+        
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        switch(type) {
+            case 'today':
+                this.currentFilters.date = today;
+                break;
+            case 'tomorrow':
+                const tomorrow = new Date(today);
+                tomorrow.setDate(today.getDate() + 1);
+                this.currentFilters.date = tomorrow;
+                break;
+            case 'thisWeek':
+                const startWeek = new Date(today);
+                const day = startWeek.getDay();
+                const diff = startWeek.getDate() - day + (day === 0 ? -6 : 1);
+                startWeek.setDate(diff);
+                startWeek.setHours(0, 0, 0, 0);
+                const endWeek = new Date(startWeek);
+                endWeek.setDate(startWeek.getDate() + 6);
+                endWeek.setHours(23, 59, 59, 999);
+                this.currentFilters.dateRange = { start: startWeek, end: endWeek };
+                break;
+            case 'next7Days':
+                const start7 = new Date(today);
+                const end7 = new Date(today);
+                end7.setDate(today.getDate() + 6);
+                end7.setHours(23, 59, 59, 999);
+                this.currentFilters.dateRange = { start: start7, end: end7 };
+                break;
+        }
+        
+        this.applyFilters();
+    },
+
+    // ===== APPLICA FILTRI CON FORZA COERENZA =====
+    applyFilters() {
+        if (!window.KoiApp?.data?.reservations) {
+            console.log('⏳ Dati non ancora pronti');
+            return;
+        }
+        
+        // STEP 1: Forza stato coerente PRIMA di filtrare
+        this.forceConsistentState();
+        
+        // STEP 2: Uniforma TUTTE le date nel dataset
+        window.KoiApp.data.reservations.forEach(r => {
+            if (r.data && !r.data.match(/^\d{2}\/\d{2}\/\d{4}$/)) {
+                r.data = this.formatDateForFilter(r.data);
+                console.log(`🔧 Data uniformata: ${r.data}`);
+            }
+        });
+        
+        let list = [...window.KoiApp.data.reservations];
+        console.log(`📊 Filtri attivi:`, this.currentFilters);
+        console.log(`📊 Prenotazioni totali: ${list.length}`);
+        
+        // FILTRO STATO
+        if (this.currentFilters.status !== 'all') {
+            let targetStatus = this.currentFilters.status;
+            if (targetStatus === 'Confermate') targetStatus = 'Confermata';
+            if (targetStatus === 'Cancellate') targetStatus = 'Cancellata';
+            
+            list = list.filter(r => (r.stato || 'Confermata') === targetStatus);
+            console.log(`   Dopo filtro stato (${targetStatus}): ${list.length}`);
+        }
+        
+        // FILTRO DATA SINGOLA
+        if (this.currentFilters.date) {
+            const filterDate = this.currentFilters.date;
+            list = list.filter(r => {
+                const resDate = this.parseReservationDate(r.data);
+                return resDate.getDate() === filterDate.getDate() &&
+                       resDate.getMonth() === filterDate.getMonth() &&
+                       resDate.getFullYear() === filterDate.getFullYear();
+            });
+            console.log(`   Dopo filtro data: ${list.length}`);
+        }
+        
+        // FILTRO RANGE
+        else if (this.currentFilters.dateRange) {
+            const { start, end } = this.currentFilters.dateRange;
+            list = list.filter(r => {
+                const resDate = this.parseReservationDate(r.data);
+                resDate.setHours(0, 0, 0, 0);
+                return resDate >= start && resDate <= end;
+            });
+            console.log(`   Dopo filtro range: ${list.length}`);
+        }
+        
+        // FILTRO RICERCA
+        if (this.currentFilters.searchText) {
+            const search = this.currentFilters.searchText;
+            list = list.filter(r => {
+                const fullName = `${r.nome || ''} ${r.cognome || ''}`.toLowerCase();
+                const phone = (r.telefono || '').toLowerCase();
+                return fullName.includes(search) || phone.includes(search);
+            });
+            console.log(`   Dopo filtro ricerca: ${list.length}`);
+        }
+        
+        console.log(`✅ Risultato finale: ${list.length} prenotazioni`);
+        this.updateDisplay(list);
+    },
+
+    updateDisplay(list) {
+        const container = document.getElementById('allReservationsCards');
+        if (!container) return;
+        
+        container.innerHTML = '';
+        
+        if (list.length === 0) {
+            container.innerHTML = `
+                <div style="text-align:center; padding:40px; color:#999;">
+                    <p style="font-size:18px;">📭 Nessuna prenotazione trovata</p>
+                    <p style="font-size:14px; margin-top:10px;">
+                        ${this.getEmptyMessage()}
+                    </p>
+                </div>`;
+            
+            const counter = document.getElementById('reservationCounter');
+            if (counter) {
+                counter.innerHTML = '<strong>0</strong> prenotazioni';
+            }
+            return;
+        }
+        
+        // Ordina per data DESC, ora ASC
+        list.sort((a, b) => {
+            const dateA = this.parseReservationDate(a.data);
+            const dateB = this.parseReservationDate(b.data);
+            
+            if (dateA.getTime() !== dateB.getTime()) {
+                return dateB - dateA;
+            }
+            
+            const [hA, mA] = (a.orario || '00:00').split(':').map(Number);
+            const [hB, mB] = (b.orario || '00:00').split(':').map(Number);
+            return (hA * 60 + mA) - (hB * 60 + mB);
+        });
+        
+        // Crea cards con FORMATTAZIONE CORRETTA
+        const html = list.map(r => {
+            const badgeClass = r.stato === 'Confermata' ? 'badge-success' : 
+                              r.stato === 'Cancellata' ? 'badge-danger' : 'badge-warning';
+            
+            return `
+                <div class="reservation-card animate-in" data-reservation-id="${r.id}">
+                    <div class="reservation-card-header">
+                        <div class="reservation-card-name">
+                            ${r.nome} ${r.cognome}
+                        </div>
+                        <div class="reservation-card-time">
+                            ${this.formatTime(r.orario)}
+                        </div>
+                    </div>
+                    <div class="reservation-card-details">
+                        <div>📅 ${this.formatDate(r.data)}</div>
+                        <div>👥 ${r.persone} persone</div>
+                        ${r.telefono ? `<div>📞 <a href="tel:${r.telefono}" style="color: var(--oro); text-decoration: none;">${r.telefono}</a></div>` : ''}
+                        ${r.email ? `<div>✉️ ${r.email}</div>` : ''}
+                        ${r.note ? `<div>📝 ${r.note}</div>` : ''}
+                        <div style="margin-top: 8px;">
+                            <span class="badge ${badgeClass}">${r.stato || 'Confermata'}</span>
+                        </div>
+                    </div>
+                    <div class="reservation-card-actions">
+                        <button class="btn-icon" onclick="KoiAPI.editReservation(${r.id})" title="Modifica">
+                            ✏️
+                        </button>
+                        <button class="btn-icon" onclick="KoiAPI.deleteReservation(${r.id})" title="Cancella">
+                            🗑️
+                        </button>
+                    </div>
+                </div>
+            `;
+        }).join('');
+        
+        container.innerHTML = html;
+        
+        // Aggiorna counter con formattazione migliorata
+        const totalPeople = list.reduce((sum, r) => sum + parseInt(r.persone || 0), 0);
+        const counter = document.getElementById('reservationCounter');
+        if (counter) {
+            let filterInfo = ' - Filtro: ';
+            
+            if (this.currentFilters.date) {
+                const oggi = new Date();
+                oggi.setHours(0, 0, 0, 0);
+                if (this.currentFilters.date.getTime() === oggi.getTime()) {
+                    filterInfo += 'Oggi';
+                } else {
+                    filterInfo += this.currentFilters.date.toLocaleDateString('it-IT');
+                }
+            } else if (this.currentFilters.dateRange) {
+                filterInfo += 'Range date';
+            }
+            
+            if (this.currentFilters.status !== 'all') {
+                filterInfo += ', ' + this.currentFilters.status;
+            }
+            
+            counter.innerHTML = `<strong>${list.length}</strong> prenotazioni | <strong>${totalPeople}</strong> persone${filterInfo}`;
+        }
+    },
+    
+    getEmptyMessage() {
+        if (this.currentFilters.date) {
+            const oggi = new Date();
+            oggi.setHours(0, 0, 0, 0);
+            if (this.currentFilters.date.getTime() === oggi.getTime()) {
+                return 'Nessuna prenotazione per oggi';
+            }
+            return `Nessuna prenotazione per ${this.currentFilters.date.toLocaleDateString('it-IT')}`;
+        }
+        
+        if (this.currentFilters.dateRange) {
+            return 'Nessuna prenotazione nel periodo selezionato';
+        }
+        
+        if (this.currentFilters.searchText) {
+            return `Nessun risultato per "${this.currentFilters.searchText}"`;
+        }
+        
+        return 'Prova a modificare i filtri';
+    }
+};
+
+// INIT VELOCE
+function initNow() {
+    const page = document.getElementById('reservationsPage');
+    const isVisible = page && page.style.display !== 'none';
+    
+    if (isVisible && window.KoiApp?.data?.reservations && !KoiFilters._initialized) {
+        KoiFilters.init();
+    }
+}
+
+// Prova subito
+initNow();
+
+// Check veloce ogni 200ms
+const quickInit = setInterval(() => {
+    initNow();
+    if (KoiFilters._initialized) {
+        clearInterval(quickInit);
+    }
+}, 200);
+
+// Stop dopo 5 secondi
+setTimeout(() => clearInterval(quickInit), 5000);
+
+// Hook navigazione - RIAPPLICA FILTRO OGGI QUANDO TORNI
+if (window.KoiUI?.navigateToPage) {
+    const original = window.KoiUI.navigateToPage;
+    window.KoiUI.navigateToPage = function(page) {
+        original.call(window.KoiUI, page);
+        if (page === 'reservations') {
+            setTimeout(() => {
+                // Se non inizializzato, inizializza
+                if (!KoiFilters._initialized) {
+                    KoiFilters.init();
+                } else {
+                    // Forza stato coerente quando torni
+                    KoiFilters.forceConsistentState();
+                    // Riapplica sempre i filtri quando torni
+                    KoiFilters.applyFilters();
+                }
+            }, 100);
+        }
+    };
+}
+
+// Esporta
+window.KoiFilters = KoiFilters;
+
+console.log('✅ filters.js pronto - Coerenza stati e date uniformi implementata');

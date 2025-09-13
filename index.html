@@ -1,0 +1,806 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#C1A875">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>KOI Restaurant - Dashboard</title>
+
+    <!-- Preconnect per velocizzare risorse esterne -->
+    <link rel="preconnect" href="https://script.google.com">
+    <link rel="dns-prefetch" href="https://script.google.com">
+    <link rel="preconnect" href="https://cdn.jsdelivr.net">
+
+    <!-- Critical CSS inline per render immediato -->
+    <style>
+        :root {
+            --oro: #C1A875;
+            --oro-chiaro: #D4BC8E;
+            --oro-scuro: #9B8660;
+            --bg-primary: #ffffff;
+            --text-primary: #1a1a1a;
+            --text-secondary: #666666;
+            --border-color: #e0e0e0;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            overflow-x: hidden;
+        }
+
+        /* Loading Screen */
+        #loadingScreen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #ffffff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 99999;
+            transition: opacity 0.3s ease;
+        }
+
+        #loadingScreen.hide {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .loading-content {
+            text-align: center;
+        }
+
+        .loading-logo {
+            font-size: 48px;
+            font-weight: bold;
+            color: #C1A875;
+            margin-bottom: 20px;
+            animation: pulse 1.5s infinite;
+        }
+
+        .loading-progress {
+            width: 200px;
+            height: 4px;
+            background: #f0f0f0;
+            border-radius: 2px;
+            overflow: hidden;
+            margin: 0 auto;
+        }
+
+        .loading-progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, #C1A875, #D4BC8E);
+            animation: progress 1.5s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.6; }
+        }
+
+        @keyframes progress {
+            0% { width: 0%; }
+            50% { width: 70%; }
+            100% { width: 100%; }
+        }
+
+        /* Skeleton Loading */
+        @keyframes skeleton-loading {
+            0% { background-position: -200% 0; }
+            100% { background-position: 200% 0; }
+        }
+
+        .skeleton {
+            background: linear-gradient(
+                90deg,
+                #f0f0f0 25%,
+                #e8e8e8 37%,
+                #f0f0f0 50%
+            );
+            background-size: 200% 100%;
+            animation: skeleton-loading 1.4s ease-in-out infinite;
+            border-radius: 4px;
+        }
+
+        .skeleton-text {
+            height: 14px;
+            margin-bottom: 8px;
+            border-radius: 4px;
+        }
+
+        .skeleton-box {
+            height: 100px;
+            margin-bottom: 16px;
+            border-radius: 8px;
+        }
+
+        /* Page transitions */
+        .page {
+            display: none;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .page.active {
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Tab styles */
+        .filter-tabs .tab.active {
+            color: var(--oro) !important;
+            border-bottom: 2px solid var(--oro) !important;
+            font-weight: 600 !important;
+        }
+
+        /* Quick filters */
+        .quick-filters button.active {
+            background: var(--oro) !important;
+            color: white !important;
+        }
+
+        /* Theme Dark Mode */
+        [data-theme="dark"] {
+            --bg-primary: #1a1a1a;
+            --bg-secondary: #2c2c2c;
+            --bg-tertiary: #3a3a3a;
+            --text-primary: #ffffff;
+            --text-secondary: #999999;
+            --border-color: #333333;
+        }
+    </style>
+
+    <!-- Main stylesheet -->
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+
+<body data-theme="light">
+    <!-- Loading Screen -->
+    <div id="loadingScreen">
+        <div class="loading-content">
+            <div class="loading-logo">KOI</div>
+            <div class="loading-progress">
+                <div class="loading-progress-bar"></div>
+            </div>
+            <p style="margin-top: 10px; color: #999; font-size: 14px;">Caricamento...</p>
+        </div>
+    </div>
+
+    <!-- App Container -->
+    <div class="app-container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-left">
+                <div class="logo-mobile">KOI</div>
+            </div>
+            <div class="header-right">
+                <button class="notification-btn" id="notificationBtn">
+                    🔔
+                    <span class="notification-badge" id="notificationBadge" style="display:none;">0</span>
+                </button>
+                <button class="theme-toggle" id="themeToggle">🌙</button>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="content">
+            <!-- Dashboard Page -->
+            <div id="dashboardPage" class="page active">
+                <h1 class="page-title">Dashboard</h1>
+                <p class="page-subtitle">Gestione KOI Restaurant</p>
+
+                <!-- KPI Cards -->
+                <div class="kpi-grid">
+                    <div class="kpi-card">
+                        <div class="kpi-title">Oggi</div>
+                        <div class="kpi-value" id="kpiToday">
+                            <div class="skeleton" style="width: 40px; height: 32px;"></div>
+                        </div>
+                        <div class="kpi-change">Prenotazioni</div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-title">Domani</div>
+                        <div class="kpi-value" id="kpiTomorrow">
+                            <div class="skeleton" style="width: 40px; height: 32px;"></div>
+                        </div>
+                        <div class="kpi-change">Prenotazioni</div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-title">Settimana</div>
+                        <div class="kpi-value" id="kpiWeek">
+                            <div class="skeleton" style="width: 40px; height: 32px;"></div>
+                        </div>
+                        <div class="kpi-change">Coperti totali</div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-title">Mese</div>
+                        <div class="kpi-value" id="kpiMonth">
+                            <div class="skeleton" style="width: 40px; height: 32px;"></div>
+                        </div>
+                        <div class="kpi-change">Coperti totali</div>
+                    </div>
+                </div>
+
+                <!-- Charts Container -->
+                <div class="charts-carousel-container" id="chartsContainer">
+                    <div class="charts-carousel">
+                        <div class="chart-slide active">
+                            <div class="chart-card">
+                                <div class="chart-header">
+                                    <h3 class="chart-title">Trend Settimanale</h3>
+                                    <span class="chart-indicator">📊</span>
+                                </div>
+                                <canvas id="trendChart" height="200"></canvas>
+                            </div>
+                        </div>
+                        <div class="chart-slide">
+                            <div class="chart-card">
+                                <div class="chart-header">
+                                    <h3 class="chart-title">Distribuzione Orari</h3>
+                                    <span class="chart-indicator">⏰</span>
+                                </div>
+                                <canvas id="timeDistributionChart" height="200"></canvas>
+                            </div>
+                        </div>
+                        <div class="chart-slide">
+                            <div class="chart-card">
+                                <div class="chart-header">
+                                    <h3 class="chart-title">Trend Mensile</h3>
+                                    <span class="chart-indicator">📈</span>
+                                </div>
+                                <canvas id="monthlyChart" height="200"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="chart-dots">
+                        <span class="dot active" data-slide="0"></span>
+                        <span class="dot" data-slide="1"></span>
+                        <span class="dot" data-slide="2"></span>
+                    </div>
+                </div>
+
+                <!-- Recent Reservations -->
+                <div class="table-container">
+                    <div class="table-header">
+                        <h3 class="chart-title">Prenotazioni di Oggi</h3>
+                        <button class="btn-icon" id="refreshDashboard">🔄</button>
+                    </div>
+                    <div class="mobile-cards" id="recentReservationsCards">
+                        <div class="skeleton skeleton-box"></div>
+                        <div class="skeleton skeleton-box"></div>
+                        <div class="skeleton skeleton-box"></div>
+                    </div>
+                </div>
+
+                <!-- Quick Stats -->
+                <div class="table-container" style="margin-top: 20px;">
+                    <h3 class="chart-title">Statistiche Rapide</h3>
+                    <div class="stats-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 15px;">
+                        <div class="stat-item" style="text-align: center; padding: 10px; background: var(--bg-tertiary); border-radius: 8px;">
+                            <div class="stat-value" id="avgGuests" style="font-size: 24px; color: var(--oro);">-</div>
+                            <div class="stat-label" style="font-size: 12px; color: var(--text-secondary);">Media Ospiti</div>
+                        </div>
+                        <div class="stat-item" style="text-align: center; padding: 10px; background: var(--bg-tertiary); border-radius: 8px;">
+                            <div class="stat-value" id="peakTime" style="font-size: 24px; color: var(--oro);">-</div>
+                            <div class="stat-label" style="font-size: 12px; color: var(--text-secondary);">Orario di Punta</div>
+                        </div>
+                        <div class="stat-item" style="text-align: center; padding: 10px; background: var(--bg-tertiary); border-radius: 8px;">
+                            <div class="stat-value" id="confirmRate" style="font-size: 24px; color: var(--verde);">-</div>
+                            <div class="stat-label" style="font-size: 12px; color: var(--text-secondary);">Tasso Conferma</div>
+                        </div>
+                        <div class="stat-item" style="text-align: center; padding: 10px; background: var(--bg-tertiary); border-radius: 8px;">
+                            <div class="stat-value" id="totalClients" style="font-size: 24px; color: var(--oro);">-</div>
+                            <div class="stat-label" style="font-size: 12px; color: var(--text-secondary);">Clienti Totali</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Reservations Page -->
+            <div id="reservationsPage" class="page">
+                <h1 class="page-title">Prenotazioni</h1>
+                <p class="page-subtitle">Gestisci le prenotazioni del ristorante</p>
+
+                <!-- Action Buttons -->
+                <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+                    <button class="btn btn-primary" id="newReservationBtn">
+                        ➕ Nuova Prenotazione
+                    </button>
+                    <button class="btn btn-secondary" id="exportBtn">
+                        📥 Esporta
+                    </button>
+                </div>
+
+                <!-- New Reservation Form (initially hidden) -->
+                <div class="table-container" id="newReservationFormContainer" style="display: none;">
+                    <h3>Nuova Prenotazione</h3>
+                    <form id="newReservationForm">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="form-label">Nome *</label>
+                                <input type="text" class="form-control" name="nome" required>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Cognome *</label>
+                                <input type="text" class="form-control" name="cognome" required>
+                            </div>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="form-label">Telefono *</label>
+                                <input type="tel" class="form-control" name="telefono" pattern="[0-9+\-\s]+" required>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Email *</label>
+                                <input type="email" class="form-control" name="email" required>
+                            </div>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="form-label">Data *</label>
+                                <input type="date" class="form-control" name="data" required>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Orario *</label>
+                                <select class="form-control" name="orario" id="timeSelect" required>
+                                    <option value="">Seleziona orario</option>
+                                    <optgroup label="Pranzo">
+                                        <option value="12:00">12:00</option>
+                                        <option value="12:30">12:30</option>
+                                        <option value="13:00">13:00</option>
+                                        <option value="13:30">13:30</option>
+                                        <option value="14:00">14:00</option>
+                                    </optgroup>
+                                    <optgroup label="Cena">
+                                        <option value="19:00">19:00</option>
+                                        <option value="19:30">19:30</option>
+                                        <option value="20:00">20:00</option>
+                                        <option value="20:30">20:30</option>
+                                        <option value="21:00">21:00</option>
+                                        <option value="21:30">21:30</option>
+                                        <option value="22:00">22:00</option>
+                                    </optgroup>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="form-label">Persone *</label>
+                                <input type="number" class="form-control" name="persone" min="1" max="20" value="2" required>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Tavolo</label>
+                                <select class="form-control" name="tavolo">
+                                    <option value="">Assegna dopo</option>
+                                    <option value="T1">Tavolo 1</option>
+                                    <option value="T2">Tavolo 2</option>
+                                    <option value="T3">Tavolo 3</option>
+                                    <option value="T4">Tavolo 4</option>
+                                    <option value="T5">Tavolo 5</option>
+                                    <option value="T6">Tavolo 6</option>
+                                    <option value="Privé">Sala Privé</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Note</label>
+                            <textarea class="form-control" name="note" rows="3" placeholder="Allergie, richieste speciali, etc."></textarea>
+                        </div>
+
+                        <div class="form-group">
+                            <label style="display: flex; align-items: center; gap: 8px;">
+                                <input type="checkbox" name="sendWhatsApp" checked>
+                                <span>Invia conferma WhatsApp</span>
+                            </label>
+                        </div>
+
+                        <div style="display: flex; gap: 10px;">
+                            <button type="submit" class="btn btn-primary">💾 Salva Prenotazione</button>
+                            <button type="button" class="btn btn-secondary" id="cancelFormBtn">Annulla</button>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Reservations List -->
+                <div class="table-container">
+                    <div class="table-header">
+                        <h3>Lista Prenotazioni</h3>
+                        <div id="reservationCounter" style="font-size: 14px; color: var(--text-secondary);"></div>
+                    </div>
+                    
+                    <!-- Status Tabs -->
+                    <div class="filter-tabs" style="display: flex; gap: 8px; margin-bottom: 16px; border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
+                        <button class="tab active" data-status="all" style="padding: 8px 16px; background: none; border: none; cursor: pointer;">
+                            Tutte
+                        </button>
+                        <button class="tab" data-status="Confermate" style="padding: 8px 16px; background: none; border: none; cursor: pointer;">
+                            Confermate
+                        </button>
+                        <button class="tab" data-status="In attesa" style="padding: 8px 16px; background: none; border: none; cursor: pointer;">
+                            In attesa
+                        </button>
+                        <button class="tab" data-status="Cancellate" style="padding: 8px 16px; background: none; border: none; cursor: pointer;">
+                            Cancellate
+                        </button>
+                    </div>
+                    
+                    <!-- Quick Filters -->
+                    <div class="quick-filters" style="display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap;">
+                        <button data-filter="today" class="btn btn-secondary" style="padding: 8px 16px;">
+                            Oggi
+                        </button>
+                        <button data-filter="tomorrow" class="btn btn-secondary" style="padding: 8px 16px;">
+                            Domani
+                        </button>
+                        <button data-filter="thisWeek" class="btn btn-secondary" style="padding: 8px 16px;">
+                            Questa Settimana
+                        </button>
+                        <button data-filter="next7Days" class="btn btn-secondary" style="padding: 8px 16px;">
+                            Prossimi 7 giorni
+                        </button>
+                        <button data-filter="all" class="btn btn-secondary" style="padding: 8px 16px;">
+                            Tutte
+                        </button>
+                    </div>
+                    
+                    <!-- Search Bar -->
+                    <div class="search-bar" style="margin-bottom: 16px;">
+                        <input type="text" id="searchReservations" class="form-control" 
+                               placeholder="🔍 Cerca per nome, telefono o email..." 
+                               style="width: 100%; padding: 10px;">
+                    </div>
+                    
+                    <!-- Reservations Cards -->
+                    <div class="mobile-cards" id="allReservationsCards">
+                        <div class="skeleton skeleton-box"></div>
+                        <div class="skeleton skeleton-box"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Customers Page -->
+            <div id="customersPage" class="page">
+                <h1 class="page-title">Clienti</h1>
+                <p class="page-subtitle">Database clienti e storico</p>
+
+                <div class="table-container">
+                    <div class="table-header">
+                        <h3>Ricerca Cliente</h3>
+                    </div>
+                    <input type="text" class="form-control" id="searchClient" 
+                           placeholder="🔍 Cerca cliente per nome o telefono..." 
+                           style="margin-bottom: 20px;">
+                    
+                    <div class="mobile-cards" id="clientsCards">
+                        <div style="text-align: center; padding: 40px; color: #999;">
+                            <p style="font-size: 48px; margin-bottom: 10px;">👥</p>
+                            <p>Database clienti in costruzione</p>
+                            <p style="font-size: 14px;">Presto potrai gestire i profili dei clienti e lo storico prenotazioni</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Top Clients -->
+                <div class="table-container" style="margin-top: 20px;">
+                    <h3>Clienti Frequenti</h3>
+                    <div id="topClientsCards">
+                        <!-- Will be populated by JavaScript -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Settings Page -->
+            <div id="settingsPage" class="page">
+                <h1 class="page-title">Impostazioni</h1>
+                <p class="page-subtitle">Configura il sistema</p>
+
+                <!-- System Info -->
+                <div class="settings-section">
+                    <h3>📊 Informazioni Sistema</h3>
+                    <div style="display: grid; gap: 10px; font-size: 14px;">
+                        <div>Versione: <strong>2.0 Unified</strong></div>
+                        <div>Database: <strong>Google Sheets</strong></div>
+                        <div>WhatsApp: <strong id="whatsappStatus">✅ Attivo</strong></div>
+                        <div id="systemStatus">Stato: <strong>Operativo</strong></div>
+                        <div>Ultimo aggiornamento: <strong id="lastUpdate">-</strong></div>
+                    </div>
+                </div>
+
+                <!-- Restaurant Hours -->
+                <div class="settings-section">
+                    <h3>🕐 Orari di Apertura</h3>
+                    <div class="time-slots-grid">
+                        <div class="time-slot">
+                            <label>Pranzo Inizio</label>
+                            <select id="lunchStart" class="form-control">
+                                <option value="11:30">11:30</option>
+                                <option value="12:00" selected>12:00</option>
+                                <option value="12:30">12:30</option>
+                            </select>
+                        </div>
+                        <div class="time-slot">
+                            <label>Pranzo Fine</label>
+                            <select id="lunchEnd" class="form-control">
+                                <option value="14:00">14:00</option>
+                                <option value="14:30" selected>14:30</option>
+                                <option value="15:00">15:00</option>
+                            </select>
+                        </div>
+                        <div class="time-slot">
+                            <label>Cena Inizio</label>
+                            <select id="dinnerStart" class="form-control">
+                                <option value="18:30">18:30</option>
+                                <option value="19:00" selected>19:00</option>
+                                <option value="19:30">19:30</option>
+                            </select>
+                        </div>
+                        <div class="time-slot">
+                            <label>Cena Fine</label>
+                            <select id="dinnerEnd" class="form-control">
+                                <option value="22:00">22:00</option>
+                                <option value="22:30" selected>22:30</option>
+                                <option value="23:00">23:00</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Capacity Settings -->
+                <div class="settings-section">
+                    <h3>🪑 Capacità Ristorante</h3>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                        <div>
+                            <label>Coperti Massimi Pranzo</label>
+                            <input type="number" id="maxLunch" class="form-control" value="60" min="1" max="200">
+                        </div>
+                        <div>
+                            <label>Coperti Massimi Cena</label>
+                            <input type="number" id="maxDinner" class="form-control" value="80" min="1" max="200">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Block Time Slots -->
+                <div class="settings-section">
+                    <h3>🚫 Blocco Orari Specifici</h3>
+                    <div class="block-controls">
+                        <input type="date" id="blockDate" class="form-control" style="flex: 2;">
+                        <select id="blockFrom" class="form-control">
+                            <option value="">Dalle</option>
+                            <option value="12:00">12:00</option>
+                            <option value="12:30">12:30</option>
+                            <option value="13:00">13:00</option>
+                            <option value="19:00">19:00</option>
+                            <option value="19:30">19:30</option>
+                            <option value="20:00">20:00</option>
+                            <option value="20:30">20:30</option>
+                            <option value="21:00">21:00</option>
+                        </select>
+                        <select id="blockTo" class="form-control">
+                            <option value="">Alle</option>
+                            <option value="13:00">13:00</option>
+                            <option value="13:30">13:30</option>
+                            <option value="14:00">14:00</option>
+                            <option value="20:00">20:00</option>
+                            <option value="20:30">20:30</option>
+                            <option value="21:00">21:00</option>
+                            <option value="21:30">21:30</option>
+                            <option value="22:00">22:00</option>
+                        </select>
+                    </div>
+                    <div style="display: flex; gap: 10px; margin-top: 10px;">
+                        <button id="addBlockBtn" class="btn btn-primary">Blocca Orario</button>
+                        <button id="closeAllDayBtn" class="btn btn-danger">Chiudi Giorno</button>
+                    </div>
+                    <div id="blockedList" class="blocked-list" style="margin-top: 15px;">
+                        <!-- Dynamic content -->
+                    </div>
+                </div>
+
+                <!-- Notification Settings -->
+                <div class="settings-section">
+                    <h3>🔔 Notifiche</h3>
+                    <div style="display: flex; flex-direction: column; gap: 10px;">
+                        <label style="display: flex; align-items: center; gap: 8px;">
+                            <input type="checkbox" id="notifyNew" checked>
+                            <span>Notifica nuove prenotazioni</span>
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 8px;">
+                            <input type="checkbox" id="notifyCancel" checked>
+                            <span>Notifica cancellazioni</span>
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 8px;">
+                            <input type="checkbox" id="notifySound">
+                            <span>Suono notifiche</span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Actions -->
+                <div class="settings-section" style="text-align: center;">
+                    <button id="saveSettingsBtn" class="btn btn-primary btn-lg" style="padding: 12px 40px;">
+                        💾 Salva Impostazioni
+                    </button>
+                    <button id="clearCacheBtn" class="btn btn-secondary" style="margin-top: 10px;">
+                        🗑️ Pulisci Cache
+                    </button>
+                </div>
+            </div>
+        </main>
+
+        <!-- Bottom Navigation -->
+        <nav class="bottom-nav">
+            <div class="nav-item active" data-page="dashboard">
+                <i>🏠</i>
+                <span>Home</span>
+            </div>
+            <div class="nav-item" data-page="reservations">
+                <i>🗓️</i>
+                <span>Prenotazioni</span>
+            </div>
+            <div class="nav-item" data-page="customers">
+                <i>👥</i>
+                <span>Clienti</span>
+            </div>
+            <div class="nav-item" data-page="settings">
+                <i>⚙️</i>
+                <span>Altro</span>
+            </div>
+        </nav>
+    </div>
+
+    <!-- Toast Container -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <!-- Modal Container (for future use) -->
+    <div class="modal" id="detailModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title" id="modalTitle">Dettagli</h3>
+                <button class="modal-close" id="modalClose">×</button>
+            </div>
+            <div class="modal-body" id="modalBody">
+                <!-- Dynamic content -->
+            </div>
+        </div>
+    </div>
+
+    <!-- JavaScript Files -->
+    <script src="config.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="js/koi-unified.js" defer></script>
+    <script src="js/charts.js" defer></script>
+    
+    <!-- Inline initialization -->
+    <script>
+        // Quick initialization
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('🚀 KOI Dashboard Starting...');
+            
+            // Hide loading screen after delay
+            setTimeout(() => {
+                document.getElementById('loadingScreen').classList.add('hide');
+            }, 1500);
+            
+            // Basic navigation
+            document.querySelectorAll('.nav-item').forEach(item => {
+                item.addEventListener('click', function() {
+                    const targetPage = this.dataset.page;
+                    
+                    // Update navigation
+                    document.querySelectorAll('.nav-item').forEach(nav => {
+                        nav.classList.remove('active');
+                    });
+                    this.classList.add('active');
+                    
+                    // Show page
+                    document.querySelectorAll('.page').forEach(page => {
+                        page.classList.remove('active');
+                    });
+                    const page = document.getElementById(targetPage + 'Page');
+                    if (page) page.classList.add('active');
+                });
+            });
+            
+            // Theme toggle
+            document.getElementById('themeToggle')?.addEventListener('click', () => {
+                const currentTheme = document.body.dataset.theme || 'light';
+                const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+                document.body.dataset.theme = newTheme;
+                localStorage.setItem('koiTheme', newTheme);
+                document.getElementById('themeToggle').textContent = newTheme === 'dark' ? '☀️' : '🌙';
+            });
+            
+            // Load saved theme
+            const savedTheme = localStorage.getItem('koiTheme') || 'light';
+            document.body.dataset.theme = savedTheme;
+            document.getElementById('themeToggle').textContent = savedTheme === 'dark' ? '☀️' : '🌙';
+            
+            // Form toggles
+            document.getElementById('newReservationBtn')?.addEventListener('click', () => {
+                document.getElementById('newReservationFormContainer').style.display = 'block';
+            });
+            
+            document.getElementById('cancelFormBtn')?.addEventListener('click', () => {
+                document.getElementById('newReservationFormContainer').style.display = 'none';
+            });
+            
+            // Initialize charts carousel
+            initChartsCarousel();
+        });
+        
+        // Charts carousel function
+        function initChartsCarousel() {
+            const slides = document.querySelectorAll('.chart-slide');
+            const dots = document.querySelectorAll('.chart-dots .dot');
+            let currentSlide = 0;
+            
+            function showSlide(index) {
+                slides.forEach(s => s.classList.remove('active'));
+                dots.forEach(d => d.classList.remove('active'));
+                
+                if (slides[index]) slides[index].classList.add('active');
+                if (dots[index]) dots[index].classList.add('active');
+                currentSlide = index;
+            }
+            
+            // Click on dots
+            dots.forEach((dot, index) => {
+                dot.addEventListener('click', () => showSlide(index));
+            });
+            
+            // Auto rotate every 5 seconds
+            setInterval(() => {
+                const nextSlide = (currentSlide + 1) % slides.length;
+                showSlide(nextSlide);
+            }, 5000);
+            
+            // Touch support for mobile
+            let touchStartX = 0;
+            const container = document.getElementById('chartsContainer');
+            
+            if (container) {
+                container.addEventListener('touchstart', (e) => {
+                    touchStartX = e.touches[0].clientX;
+                }, { passive: true });
+                
+                container.addEventListener('touchend', (e) => {
+                    const touchEndX = e.changedTouches[0].clientX;
+                    const diff = touchStartX - touchEndX;
+                    
+                    if (Math.abs(diff) > 50) {
+                        if (diff > 0 && currentSlide < slides.length - 1) {
+                            showSlide(currentSlide + 1);
+                        } else if (diff < 0 && currentSlide > 0) {
+                            showSlide(currentSlide - 1);
+                        }
+                    }
+                }, { passive: true });
+            }
+        }
+        
+        // Log system info
+        console.log('📋 Config loaded:', window.KOI_CONFIG ? 'YES' : 'NO');
+        console.log('📊 Chart.js:', typeof Chart !== 'undefined' ? 'Loaded' : 'Pending');
+    </script>
+</body>
+</html>
