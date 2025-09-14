@@ -1,13 +1,14 @@
 // ====================================
 // KOI DASHBOARD - CHARTS MANAGEMENT
 // File: js/charts.js
+// Version: 2.0 - Mobile Optimized
 // ====================================
 
 const KoiCharts = {
     
     // Stato inizializzazione
     initialized: false,
-    chartsReady: false,
+    monthlyInitialized: false,
     
     // Oggetto per memorizzare istanze dei grafici
     instances: {},
@@ -25,137 +26,120 @@ const KoiCharts = {
     },
 
     /**
-     * Verifica se Chart.js è caricato
-     */
-    isChartJsLoaded: function() {
-        return typeof Chart !== 'undefined';
-    },
-
-    /**
-     * Inizializza i grafici con controllo lazy loading
+     * Inizializza i grafici - versione ottimizzata mobile
      */
     initializeCharts: function() {
-        console.log('📊 Inizializzazione grafici richiesta...');
+        console.log('📊 Inizializzazione grafici...');
         
-        // Se già inizializzati, esci
         if (this.initialized) {
             console.log('Grafici già inizializzati');
             return;
         }
         
-        // Verifica che Chart.js sia caricato
-        if (!this.isChartJsLoaded()) {
-            console.log('⏳ Chart.js non ancora caricato, attendo...');
-            
-            // Riprova tra 500ms
-            setTimeout(() => {
-                this.initializeCharts();
-            }, 500);
+        // Verifica Chart.js
+        if (typeof Chart === 'undefined') {
+            console.log('⏳ Chart.js non ancora caricato...');
+            setTimeout(() => this.initializeCharts(), 300);
             return;
         }
         
-        // Verifica che ci siano dati
-        if (!window.KoiApp || !window.KoiApp.data || !window.KoiApp.data.reservations) {
-            console.log('⏳ Dati non ancora disponibili per i grafici');
-            
-            // Riprova tra 1 secondo
-            setTimeout(() => {
-                this.initializeCharts();
-            }, 1000);
+        // Verifica dati
+        if (!window.KoiApp?.data?.reservations) {
+            console.log('⏳ Dati non ancora disponibili...');
+            setTimeout(() => this.initializeCharts(), 500);
             return;
         }
         
-        console.log('✅ Chart.js caricato, inizializzo grafici...');
-        
-        // Marca come inizializzato
         this.initialized = true;
         
-        // Inizializza i grafici effettivi
-        this.setupCharts();
+        // Inizializza SOLO il grafico settimanale (primo visibile)
+        this.initTrendChart();
+        
+        // Setup listener per carousel slides
+        this.setupCarouselListener();
+        
+        console.log('✅ Sistema grafici pronto!');
     },
 
     /**
-     * Setup effettivo dei grafici
+     * Setup listener per il carousel
      */
-    setupCharts: function() {
-        // Attendi che il DOM sia pronto
-        const setupWhenReady = () => {
-            const trendCanvas = document.getElementById('trendChart');
-            const monthlyCanvas = document.getElementById('monthlyChart');
+    setupCarouselListener: function() {
+        // Listener per swipe/touch events
+        const carousel = document.querySelector('.charts-carousel');
+        if (!carousel) return;
+        
+        let touchStartX = 0;
+        let touchEndX = 0;
+        
+        carousel.addEventListener('touchstart', (e) => {
+            touchStartX = e.changedTouches[0].screenX;
+        });
+        
+        carousel.addEventListener('touchend', (e) => {
+            touchEndX = e.changedTouches[0].screenX;
+            this.handleSwipe();
+        });
+        
+        // Gestione swipe
+        this.handleSwipe = () => {
+            const swipeThreshold = 50;
+            const diff = touchStartX - touchEndX;
             
-            if (!trendCanvas || !monthlyCanvas) {
-                console.log('Canvas non ancora nel DOM, attendo...');
-                setTimeout(setupWhenReady, 100);
-                return;
-            }
-            
-            console.log('🎨 Creo i grafici...');
-            
-            // Rimuovi skeleton se presenti
-            const chartsContainer = document.getElementById('chartsContainer');
-            if (chartsContainer && chartsContainer.querySelector('.skeleton')) {
-                chartsContainer.innerHTML = `
-                    <div class="charts-carousel">
-                        <div class="chart-slide active">
-                            <div class="chart-card">
-                                <div class="chart-header">
-                                    <h3 class="chart-title">Trend Settimanale</h3>
-                                    <span class="chart-indicator">1/2</span>
-                                </div>
-                                <canvas id="trendChart"></canvas>
-                            </div>
-                        </div>
-                        <div class="chart-slide">
-                            <div class="chart-card">
-                                <div class="chart-header">
-                                    <h3 class="chart-title">Trend Mensile</h3>
-                                    <span class="chart-indicator">2/2</span>
-                                </div>
-                                <canvas id="monthlyChart"></canvas>
-                            </div>
-                        </div>
-                    </div>
-                `;
-                
-                // Reinizializza carousel se necessario
-                if (typeof initChartsCarousel === 'function') {
-                    setTimeout(initChartsCarousel, 100);
+            if (Math.abs(diff) > swipeThreshold) {
+                if (diff > 0) {
+                    // Swipe left - mostra grafico mensile
+                    this.showMonthlyChart();
+                } else {
+                    // Swipe right - mostra grafico settimanale  
+                    this.showWeeklyChart();
                 }
             }
-            
-            // Inizializza grafici
-            setTimeout(() => {
-                this.initTrendChart();
-                this.initMonthlyChart();
-                this.chartsReady = true;
-                console.log('✅ Grafici pronti!');
-            }, 100);
         };
         
-        setupWhenReady();
+        // Listener per click su indicatori (se presenti)
+        document.addEventListener('click', (e) => {
+            if (e.target.closest('.chart-indicator')) {
+                const indicator = e.target.closest('.chart-indicator');
+                const text = indicator.textContent;
+                if (text.includes('2/2')) {
+                    this.showMonthlyChart();
+                } else {
+                    this.showWeeklyChart();
+                }
+            }
+        });
     },
 
     /**
-     * Ottieni giorni della settimana da lunedì
+     * Mostra grafico settimanale
      */
-    getWeekDaysFromMonday: function() {
-        const days = ['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom'];
-        const today = new Date();
-        const dayOfWeek = today.getDay();
-        const daysFromMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
-        const monday = new Date(today);
-        monday.setDate(today.getDate() - daysFromMonday);
-        
-        const labels = [];
-        for (let i = 0; i < 7; i++) {
-            const currentDate = new Date(monday);
-            currentDate.setDate(monday.getDate() + i);
-            const dayName = days[i];
-            const dayNum = currentDate.getDate();
-            labels.push(`${dayName} ${dayNum}`);
+    showWeeklyChart: function() {
+        const slides = document.querySelectorAll('.chart-slide');
+        if (slides.length >= 2) {
+            slides[0].classList.add('active');
+            slides[1].classList.remove('active');
         }
-        
-        return labels;
+    },
+
+    /**
+     * Mostra grafico mensile e inizializza se necessario
+     */
+    showMonthlyChart: function() {
+        const slides = document.querySelectorAll('.chart-slide');
+        if (slides.length >= 2) {
+            slides[0].classList.remove('active');
+            slides[1].classList.add('active');
+            
+            // Inizializza grafico mensile al primo accesso
+            if (!this.monthlyInitialized) {
+                console.log('📊 Inizializzo grafico mensile...');
+                setTimeout(() => {
+                    this.initMonthlyChart();
+                    this.monthlyInitialized = true;
+                }, 100);
+            }
+        }
     },
 
     /**
@@ -168,12 +152,11 @@ const KoiCharts = {
             return;
         }
 
-        // Distruggi grafico esistente se presente
+        // Distruggi grafico esistente
         if (this.instances.trend) {
             this.instances.trend.destroy();
         }
 
-        // Configurazione ottimizzata per performance
         this.instances.trend = new Chart(ctx, {
             type: 'line',
             data: {
@@ -197,7 +180,7 @@ const KoiCharts = {
                 responsive: true,
                 maintainAspectRatio: false,
                 animation: {
-                    duration: 750 // Animazione più veloce
+                    duration: 750
                 },
                 interaction: {
                     intersect: false,
@@ -256,6 +239,8 @@ const KoiCharts = {
                 }
             }
         });
+        
+        console.log('✅ Grafico settimanale inizializzato');
     },
 
     /**
@@ -288,7 +273,7 @@ const KoiCharts = {
                            'Luglio', 'Agosto', 'Settembre', 'Ottobre', 'Novembre', 'Dicembre'];
         
         // Conta prenotazioni per ogni giorno
-        const reservations = (window.KoiApp && window.KoiApp.data && window.KoiApp.data.reservations) || [];
+        const reservations = window.KoiApp?.data?.reservations || [];
         
         reservations.forEach(res => {
             if (!res.stato || res.stato.toLowerCase() !== 'confermata') {
@@ -296,6 +281,8 @@ const KoiCharts = {
             }
             
             const d = new Date(res.data);
+            if (isNaN(d.getTime())) return;
+            
             const resDate = new Date(d.getFullYear(), d.getMonth(), d.getDate());
             
             if (resDate.getMonth() === currentMonth && resDate.getFullYear() === currentYear) {
@@ -327,7 +314,7 @@ const KoiCharts = {
             this.instances.monthly.destroy();
         }
         
-        // Crea nuovo chart con performance ottimizzata
+        // Crea nuovo chart
         this.instances.monthly = new Chart(ctx, {
             type: 'line',
             data: {
@@ -368,7 +355,7 @@ const KoiCharts = {
                 responsive: true,
                 maintainAspectRatio: false,
                 animation: {
-                    duration: 750 // Animazione più veloce
+                    duration: 750
                 },
                 interaction: {
                     intersect: false,
@@ -442,6 +429,31 @@ const KoiCharts = {
                 }
             }
         });
+        
+        console.log('✅ Grafico mensile inizializzato');
+    },
+
+    /**
+     * Ottieni giorni della settimana da lunedì
+     */
+    getWeekDaysFromMonday: function() {
+        const days = ['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom'];
+        const today = new Date();
+        const dayOfWeek = today.getDay();
+        const daysFromMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+        const monday = new Date(today);
+        monday.setDate(today.getDate() - daysFromMonday);
+        
+        const labels = [];
+        for (let i = 0; i < 7; i++) {
+            const currentDate = new Date(monday);
+            currentDate.setDate(monday.getDate() + i);
+            const dayName = days[i];
+            const dayNum = currentDate.getDate();
+            labels.push(`${dayName} ${dayNum}`);
+        }
+        
+        return labels;
     },
 
     /**
@@ -449,7 +461,7 @@ const KoiCharts = {
      */
     getTrendData: function() {
         const data = [];
-        const reservations = window.KoiApp.data.reservations || [];
+        const reservations = window.KoiApp?.data?.reservations || [];
         
         const today = new Date();
         const dayOfWeek = today.getDay();
@@ -462,28 +474,15 @@ const KoiCharts = {
             currentDate.setDate(monday.getDate() + i);
             
             const count = reservations.filter(r => {
-    if (!r.stato || r.stato.toLowerCase() !== 'confermata') return false;
-    
-    // Gestisce sia formato ISO che DD/MM/YYYY
-    let resDate;
-    if (r.data.includes('T')) {
-        // Formato ISO
-        resDate = new Date(r.data);
-    } else if (r.data.includes('/')) {
-        // Formato DD/MM/YYYY
-        const [d, m, y] = r.data.split('/');
-        resDate = new Date(y, m - 1, d);
-    } else {
-        resDate = new Date(r.data);
-    }
-    
-    if (isNaN(resDate.getTime())) return false;
-    
-    // Confronta solo giorno/mese/anno ignorando l'orario
-    return resDate.getDate() === currentDate.getDate() &&
-           resDate.getMonth() === currentDate.getMonth() &&
-           resDate.getFullYear() === currentDate.getFullYear();
-}).length;
+                if (!r.stato || r.stato.toLowerCase() !== 'confermata') return false;
+                
+                const resDate = new Date(r.data);
+                if (isNaN(resDate.getTime())) return false;
+                
+                return resDate.getDate() === currentDate.getDate() &&
+                       resDate.getMonth() === currentDate.getMonth() &&
+                       resDate.getFullYear() === currentDate.getFullYear();
+            }).length;
             
             data.push(count);
         }
@@ -495,23 +494,24 @@ const KoiCharts = {
      * Aggiorna tutti i grafici
      */
     updateCharts: function() {
-        // Se non sono ancora inizializzati, esci
-        if (!this.chartsReady) {
-            console.log('Grafici non ancora pronti per aggiornamento');
+        if (!this.initialized) {
+            console.log('Grafici non ancora pronti');
             return;
         }
         
-        console.log('Aggiornamento grafici...');
+        console.log('📊 Aggiornamento grafici...');
         
         // Aggiorna grafico settimanale
-        if (this.instances.trend) {
+        if (this.instances.trend && document.getElementById('trendChart')) {
             this.instances.trend.data.labels = this.getWeekDaysFromMonday();
             this.instances.trend.data.datasets[0].data = this.getTrendData();
             this.instances.trend.update('active');
         }
         
-        // Re-inizializza grafico mensile
-        this.initMonthlyChart();
+        // Aggiorna grafico mensile solo se inizializzato
+        if (this.monthlyInitialized && document.getElementById('monthlyChart')) {
+            this.initMonthlyChart();
+        }
     },
 
     /**
@@ -526,7 +526,7 @@ const KoiCharts = {
         });
         
         this.initialized = false;
-        this.chartsReady = false;
+        this.monthlyInitialized = false;
     },
 
     /**
@@ -539,8 +539,7 @@ const KoiCharts = {
         this.colors.text = textColor;
         this.colors.grid = gridColor;
         
-        // Aggiorna solo se i grafici sono pronti
-        if (!this.chartsReady) return;
+        if (!this.initialized) return;
         
         Object.values(this.instances).forEach(chart => {
             if (chart.options.scales) {
@@ -565,3 +564,30 @@ const KoiCharts = {
 
 // Esporta per uso globale
 window.KoiCharts = KoiCharts;
+
+// Auto-init quando DOM è pronto
+document.addEventListener('DOMContentLoaded', function() {
+    setTimeout(() => {
+        KoiCharts.initializeCharts();
+    }, 1000);
+});
+
+// Gestione evento koiDataLoaded
+window.addEventListener('koiDataLoaded', () => {
+    if (window.KoiCharts) {
+        setTimeout(() => {
+            if (!KoiCharts.initialized) {
+                KoiCharts.initializeCharts();
+            } else {
+                KoiCharts.updateCharts();
+            }
+        }, 500);
+    }
+});
+
+// Funzione globale per aggiornamento grafici (retrocompatibilità)
+window.updateCharts = function(reservations) {
+    if (window.KoiCharts) {
+        window.KoiCharts.updateCharts();
+    }
+};
