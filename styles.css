@@ -1,3 +1,7 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
 /* ================================
    KOI Restaurant Dashboard - Styles
    Version: 1.0
@@ -222,7 +226,7 @@ body {
 }
 
 /* ================================
-   Charts & Carousel
+   Charts & Carousel - FIXED
    ================================ */
 .chart-card {
     background: var(--bg-secondary);
@@ -246,8 +250,12 @@ body {
     color: var(--text-primary);
 }
 
+/* ✅ FIX: Altezza canvas mobile-friendly */
 .chart-card canvas {
-    max-height: 200px !important;
+    height: 240px;
+    width: 100%;
+    max-width: 100%;
+    display: block;
 }
 
 /* Charts Carousel */
@@ -258,17 +266,23 @@ body {
     margin: 20px 0;
 }
 
+/* ✅ FIX: Carousel mobile-safe */
 .charts-carousel {
     display: flex;
+    width: 100%;
+    overflow-x: hidden;
     transition: transform 0.3s ease;
     touch-action: pan-y pinch-zoom;
 }
 
+/* ✅ FIX: Chart slide con flex corretto */
 .chart-slide {
-    min-width: 100%;
-    flex-shrink: 0;
+    width: 100%;
+    flex: 1 0 100%;
+    box-sizing: border-box;
 }
 
+/* Mantieni opacity per nascondere (non display:none) */
 .chart-slide:not(.active) {
     opacity: 0;
     pointer-events: none;
@@ -291,6 +305,15 @@ body {
     border-radius: 12px;
 }
 
+/* ✅ FIX: Altezza canvas specifica per mobile */
+@media (max-width: 767px) {
+    .chart-card canvas {
+        height: 240px;
+        min-height: 200px;
+        max-height: 300px;
+    }
+}
+
 /* Desktop: mostra entrambi i grafici affiancati */
 @media (min-width: 768px) {
     .charts-carousel-container {
@@ -306,8 +329,14 @@ body {
     
     .chart-slide {
         min-width: calc(50% - 10px);
+        flex: 1 1 calc(50% - 10px);
         opacity: 1 !important;
         pointer-events: auto !important;
+    }
+    
+    .chart-card canvas {
+        height: 250px;
+        max-height: 300px !important;
     }
     
     .chart-indicator {
@@ -1103,6 +1132,7 @@ body {
     color: #999;
     font-size: 16px;
 }
+
 /* Mobile: 1 colonna */
 #reservationsPage #allReservationsCards {
   display: grid;
@@ -1126,3 +1156,164 @@ body {
     grid-template-columns: repeat(3, 1fr);
   }
 }
+
+/* ===== FIX GRAFICI DESKTOP ===== */
+@media (min-width: 768px) {
+    /* Fix container grafici desktop */
+    .charts-carousel-container {
+        display: block !important;
+        overflow: visible !important;
+        height: auto !important;
+    }
+    
+    .charts-carousel {
+        display: grid !important;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 20px;
+        transform: none !important;
+    }
+    
+    .chart-slide {
+        display: block !important;
+        min-width: 100% !important;
+        opacity: 1 !important;
+        pointer-events: auto !important;
+    }
+    
+    .chart-card {
+        height: 300px;
+        display: flex;
+        flex-direction: column;
+    }
+    
+    .chart-card canvas {
+        flex: 1;
+        max-height: 250px !important;
+    }
+    
+    /* Nascondi dots e indicatori su desktop */
+    .chart-dots,
+    .chart-indicator {
+        display: none !important;
+    }
+}
+
+/* Desktop XL: 3 grafici in fila */
+@media (min-width: 1200px) {
+    .charts-carousel {
+        grid-template-columns: repeat(3, 1fr) !important;
+    }
+}
+
+/* Fix scroll desktop */
+@media (min-width: 768px) {
+    .content {
+        overflow-y: auto !important;
+        max-height: calc(100vh - 140px);
+    }
+}
+
+/* ===== FIX SCROLL IMPOSTAZIONI E ALTRE PAGINE ===== */
+@media (min-width: 768px) {
+    /* Fix altezza content per permettere scroll */
+    .content {
+        max-height: calc(100vh - 120px) !important;
+        overflow-y: auto !important;
+        overflow-x: hidden !important;
+    }
+    
+    /* Settings sections affiancate su desktop */
+    #settingsPage .settings-section {
+        margin-bottom: 20px;
+    }
+    
+    /* Orari affiancati */
+    .time-slots-grid {
+        display: grid !important;
+        grid-template-columns: repeat(4, 1fr) !important;
+        gap: 20px !important;
+    }
+    
+    /* Capacità affiancata */
+    #settingsPage .settings-section:nth-child(3) > div {
+        display: grid !important;
+        grid-template-columns: 1fr 1fr !important;
+        gap: 30px !important;
+    }
+    
+    /* Blocco orari - controlli in linea */
+    .block-controls {
+        display: grid !important;
+        grid-template-columns: 2fr 1fr 1fr !important;
+        gap: 15px !important;
+    }
+}
+
+/* Desktop XL - layout ancora più spazioso */
+@media (min-width: 1200px) {
+    .content {
+        padding: 30px !important;
+        max-width: 1400px !important;
+    }
+    
+    /* Due colonne per le sezioni settings */
+    #settingsPage {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 20px;
+    }
+}
+
+/* Force hide non-active pages */
+.page:not(.active) {
+    display: none !important;
+}
+
+/* FIX Prenotazioni di Oggi su Desktop */
+@media (min-width: 768px) {
+    #recentReservationsCards {
+        display: block !important;
+        min-height: 100px !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+    }
+    
+    #dashboardPage .table-container:last-child {
+        display: block !important;
+        margin-top: 20px !important;
+    }
+    
+    #dashboardPage .mobile-cards {
+        display: block !important;  /* Mostra anche su desktop */
+    }
+}
+</style>
+</head>
+<body>
+<div style="padding: 20px; font-family: system-ui; background: #f5f5f5; min-height: 100vh;">
+    <h2 style="color: #C1A875; margin-bottom: 20px;">✅ KOI Dashboard - CSS Fixed</h2>
+    
+    <div style="background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+        <h3 style="color: #333; margin-bottom: 15px;">🔧 Modifiche applicate:</h3>
+        
+        <ul style="line-height: 1.8; color: #666;">
+            <li><strong>Chart Canvas (righe 286-291):</strong> Altezza fissa a 240px per mobile</li>
+            <li><strong>Charts Carousel (righe 302-306):</strong> Aggiunto overflow-x: hidden per sicurezza</li>
+            <li><strong>Chart Slide (righe 309-313):</strong> Sostituito min-width con flex: 1 0 100%</li>
+            <li><strong>Mobile Canvas (righe 335-340):</strong> Altezze specifiche per mobile</li>
+            <li><strong>Desktop Canvas (righe 361-363):</strong> Altezza aumentata a 250px su desktop</li>
+        </ul>
+        
+        <div style="margin-top: 20px; padding: 15px; background: #f0f8ff; border-left: 3px solid #C1A875; border-radius: 4px;">
+            <p style="margin: 0; color: #333;">
+                <strong>📱 Risultato atteso:</strong><br>
+                • Grafici sempre visibili su mobile<br>
+                • Canvas con dimensioni corrette<br>
+                • Nessun overflow nel carousel<br>
+                • Layout stabile su tutti i dispositivi
+            </p>
+        </div>
+    </div>
+</div>
+</body>
+</html>
