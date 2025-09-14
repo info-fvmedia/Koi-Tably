@@ -13,18 +13,26 @@ const KoiUtils = {
     parseDate(str) {
         if (!str) return new Date();
         
-        // Converti in stringa se non lo è già (FIX per l'errore includes)
         const dateStr = String(str);
         
-        // Formato ISO (dal tuo Apps Script): "2025-09-10T07:00:00.000Z"
+        // Formato ISO: "2025-09-15T07:00:00.000Z"
         if (dateStr.includes('T')) {
             return new Date(dateStr);
         }
         
-        // Formato DD/MM/YYYY
+        // Formato DD/MM/YYYY: "10/09/2025"
         if (dateStr.includes('/')) {
-            const [d, m, y] = dateStr.split('/').map(Number);
-            return new Date(y, m - 1, d, 12, 0, 0);
+            const parts = dateStr.split('/');
+            if (parts.length === 3) {
+                const [day, month, year] = parts.map(Number);
+                return new Date(year, month - 1, day, 12, 0, 0);
+            }
+        }
+        
+        // Formato YYYY-MM-DD: "2025-09-15"
+        if (dateStr.match(/^\d{4}-\d{2}-\d{2}$/)) {
+            const [year, month, day] = dateStr.split('-').map(Number);
+            return new Date(year, month - 1, day, 12, 0, 0);
         }
         
         return new Date(dateStr);
@@ -250,6 +258,18 @@ const KoiFilters = {
             return;
         }
 
+        // 🔧 MODIFICA 1: Aggiungi ID univoco se mancante
+        list = list.map(res => {
+            if (!res.id) {
+                const base = `${res.nome || ''}-${res.telefono || ''}-${res.data || ''}`;
+                res.id = base.replace(/\s+/g, '').replace(/[^\w-]/g, '').toLowerCase();
+            }
+            return res;
+        });
+
+        // 🔍 DEBUG: Rendering prenotazioni con ID
+        console.log("🎨 Rendering prenotazioni:", list.map(r => r.id));
+
         // Ordina: data più recente prima, poi per orario
         list.sort((a, b) => {
             const dateA = KoiUtils.parseDate(a.data);
@@ -287,17 +307,17 @@ const KoiFilters = {
                         ${r.note ? `<div>📝 ${r.note}</div>` : ''}
                         <div style="margin-top: 8px;">
                             <span class="badge ${badgeClass}">${r.stato || 'Confermata'}</span>
-                            ${r.waInviato ? '<span class="badge" style="background: #25d366; color: white; margin-left: 4px;">WA ✓</span>' : ''}
+                            ${r.waInviato ? '<span class="badge" style="background: #25d366; color: white; margin-left: 4px;">WA ✔</span>' : ''}
                         </div>
                     </div>
                     <div class="reservation-card-actions">
-                        <button class="btn-icon" onclick="KoiAPI.editReservation(${r.id})" title="Modifica">
+                        <button class="btn-icon btn-edit" data-id="${r.id}" title="Modifica">
                             ✏️
                         </button>
-                        <button class="btn-icon" onclick="KoiAPI.deleteReservation(${r.id})" title="Cancella">
+                        <button class="btn-icon" onclick="KoiAPI.deleteReservation('${r.id}')" title="Cancella">
                             🗑️
                         </button>
-                        <button class="btn-icon" onclick="KoiAPI.sendWhatsApp(${r.id})" title="WhatsApp">
+                        <button class="btn-icon" onclick="KoiAPI.sendWhatsApp('${r.id}')" title="WhatsApp">
                             📱
                         </button>
                     </div>
@@ -306,6 +326,14 @@ const KoiFilters = {
         }).join('');
         
         container.innerHTML = html;
+        
+        // 🔍 DEBUG: Bottoni generati con data-id
+        document.querySelectorAll('.btn-edit').forEach(btn => {
+            console.log("✏️ Bottone generato - data-id:", btn.dataset.id);
+        });
+        document.querySelectorAll('.btn-icon[onclick*="deleteReservation"]').forEach(btn => {
+            console.log("🗑️ Bottone generato - delete data-id:", btn.getAttribute("onclick"));
+        });
     },
 
     updateCounter(count) {
@@ -388,8 +416,9 @@ const KoiDashboard = {
     updateKPIs() {
         const reservations = window.KoiApp?.data?.reservations || [];
         const today = new Date();
+        today.setHours(0, 0, 0, 0);
         
-        // KPI Oggi
+        // KPI Oggi - VERSIONE SEMPLICE E SICURA
         const todayReservations = reservations.filter(r => 
             KoiUtils.isSameDay(r.data, today) && (r.stato || 'Confermata') === 'Confermata'
         );
@@ -399,13 +428,25 @@ const KoiDashboard = {
             kpiTodayEl.textContent = todayReservations.length;
         }
 
-        // KPI Settimana (coperti totali)
+        // KPI Settimana (coperti totali) - VERSIONE ORIGINALE
         const weekReservations = reservations.filter(r => (r.stato || 'Confermata') === 'Confermata');
         const totalCovers = weekReservations.reduce((sum, r) => sum + (parseInt(r.persone) || 0), 0);
         
         const kpiWeekEl = document.getElementById('kpiWeek');
         if (kpiWeekEl) {
             kpiWeekEl.textContent = totalCovers;
+        }
+        
+        // KPI Domani - PLACEHOLDER
+        const kpiTomorrowEl = document.getElementById('kpiTomorrow');
+        if (kpiTomorrowEl) {
+            kpiTomorrowEl.textContent = '-';
+        }
+        
+        // KPI Mese - PLACEHOLDER
+        const kpiMonthEl = document.getElementById('kpiMonth');
+        if (kpiMonthEl) {
+            kpiMonthEl.textContent = '-';
         }
     }
 };
@@ -422,28 +463,28 @@ const KoiAPI = {
         this._loading = true;
 
         try {
-            console.log('🔄 Caricamento dati dashboard...');
+            console.log('📄 Caricamento dati dashboard...');
 
             const url = KOI_CONFIG.API_URL;
 
-let response;
-const controller = new AbortController();
-const timeoutId = setTimeout(() => controller.abort(), 9000);
+            let response;
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 9000);
 
-try {
-    response = await fetch(url, {
-        method: 'POST',
-        signal: controller.signal,
-        headers: {
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-            action: 'lista',
-            token: KOI_CONFIG.API_TOKEN
-        })
-    });
-    clearTimeout(timeoutId);
-} catch (err) {
+            try {
+                response = await fetch(url, {
+                    method: 'POST',
+                    signal: controller.signal,
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        action: 'lista',
+                        token: KOI_CONFIG.API_TOKEN
+                    })
+                });
+                clearTimeout(timeoutId);
+            } catch (err) {
                 console.warn('⚠️ Fetch fallito o timeout:', err);
                 throw new Error('Timeout o errore connessione API');
             }
@@ -473,7 +514,19 @@ try {
             window.KoiApp.data = window.KoiApp.data || {};
             window.KoiApp.data.reservations = Array.isArray(result.data) ? result.data : [];
 
+            // 🔧 MODIFICA 1: Aggiungi ID univoco a ogni prenotazione se mancante
+            window.KoiApp.data.reservations = window.KoiApp.data.reservations.map(res => {
+                if (!res.id) {
+                    const base = `${res.nome || ''}-${res.telefono || ''}-${res.data || ''}`;
+                    res.id = base.replace(/\s+/g, '').replace(/[^\w-]/g, '').toLowerCase();
+                }
+                return res;
+            });
+
             console.log(`✅ ${window.KoiApp.data.reservations.length} prenotazioni caricate`);
+            
+            // 🔍 DEBUG: Lista ID prenotazioni caricate
+            console.log("📋 Lista ID prenotazioni caricate:", window.KoiApp.data.reservations.map(r => r.id));
 
             // Salva in cache locale se ci sono dati
             if (window.KoiApp.data.reservations.length > 0) {
@@ -668,7 +721,7 @@ try {
 
     // Invio WhatsApp per prenotazione esistente
     async sendWhatsAppConfirmation(id) {
-        const reservation = window.KoiApp.data.reservations.find(r => r.id === id);
+        const reservation = window.KoiApp.data.reservations.find(r => String(r.id) === String(id));
         if (!reservation) {
             this.showToast('❌ Prenotazione non trovata', 'error');
             return;
@@ -714,7 +767,7 @@ try {
 
     // Modifica bottone WhatsApp per usare conferma automatica o manuale
     sendWhatsApp(id) {
-        const reservation = window.KoiApp.data.reservations.find(r => r.id === id);
+        const reservation = window.KoiApp.data.reservations.find(r => String(r.id) === String(id));
         if (!reservation) return;
         
         // Se già inviato, chiedi conferma per reinvio
@@ -732,17 +785,17 @@ try {
 
     // Funzione modifica prenotazione (placeholder)
     editReservation(id) {
-        const reservation = window.KoiApp.data.reservations.find(r => r.id === id);
+        const reservation = window.KoiApp.data.reservations.find(r => String(r.id) === String(id));
         if (reservation) {
             alert(`Modifica prenotazione:\n${reservation.nome} ${reservation.cognome}\n${KoiUtils.formatDateShort(reservation.data)} - ${KoiUtils.formatTime(reservation.orario)}`);
         }
     },
 
-    // Cancellazione prenotazione
+    // Cancellazione prenotazione - FIX con conversione stringa
     async deleteReservation(id) {
         if (!confirm('Cancellare questa prenotazione?')) return;
         
-        const reservation = window.KoiApp.data.reservations.find(r => r.id === id);
+        const reservation = window.KoiApp.data.reservations.find(r => String(r.id) === String(id));
         if (reservation) {
             try {
                 // Chiamata API per cancellazione
@@ -901,6 +954,8 @@ const KoiApp = {
 // Inizializzazione
 // =========================
 document.addEventListener('DOMContentLoaded', () => {
+    console.log("📱 User Agent:", navigator.userAgent);
+    
     window.KoiApp = KoiApp;
     window.KoiAPI = KoiAPI;
     window.KoiFilters = KoiFilters;
@@ -908,6 +963,142 @@ document.addEventListener('DOMContentLoaded', () => {
     window.KoiUtils = KoiUtils;
     
     KoiApp.init();
+    
+    // 🔧 MODIFICA: Apertura modale modifica prenotazione (FIX con DEBUG)
+    document.addEventListener('click', function (e) {
+        const btn = e.target.closest('.btn-edit');
+        if (!btn) return;
+        
+        const id = btn.dataset.id;
+        console.log("🖱️ Bottone Modifica cliccato - data-id:", id);
+        
+        // 🔍 DEBUG: Lista IDs disponibili al click
+        if (window.KoiApp?.data?.reservations) {
+            console.log("📋 IDs disponibili:", window.KoiApp.data.reservations.map(r => r.id));
+        } else {
+            console.warn("⚠️ Nessuna prenotazione caricata in memoria");
+        }
+        
+        // FIX: Converti entrambi a stringa per confronto sicuro
+        const res = window.KoiApp.data.reservations.find(r => String(r.id) === String(id));
+        
+        if (!res) {
+            console.error('Prenotazione non trovata per ID:', id);
+            console.log('Tipo ID cercato:', typeof id);
+            console.log('Tipi ID nel database:', window.KoiApp.data.reservations.map(r => ({ id: r.id, tipo: typeof r.id })));
+            return alert('❌ Prenotazione non trovata (ID: ' + id + ')');
+        }
+        
+        console.log('🔍 Trovata prenotazione:', res);
+        
+        const modal = document.getElementById('detailModal');
+        if (!modal) {
+            console.error('Modale detailModal non trovata nel DOM');
+            return;
+        }
+        
+        const modalTitle = document.getElementById('modalTitle');
+        if (modalTitle) {
+            modalTitle.textContent = 'Modifica Prenotazione';
+        }
+        
+        const modalBody = document.getElementById('modalBody');
+        if (modalBody) {
+            modalBody.innerHTML = `
+                <form id="editReservationForm" style="display: flex; flex-direction: column; gap: 15px;">
+                    <div class="form-group">
+                        <label class="form-label">Nome</label>
+                        <input name="nome" class="form-control" value="${res.nome || ''}" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Cognome</label>
+                        <input name="cognome" class="form-control" value="${res.cognome || ''}">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Email</label>
+                        <input name="email" type="email" class="form-control" value="${res.email || ''}">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Telefono</label>
+                        <input name="telefono" class="form-control" value="${res.telefono || ''}">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Persone</label>
+                        <input name="persone" type="number" min="1" class="form-control" value="${res.persone || 2}">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Data</label>
+                        <input name="data" type="date" class="form-control" value="${res.data ? res.data.split('T')[0].split('/').reverse().join('-') : ''}">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Orario</label>
+                        <input name="orario" type="time" class="form-control" value="${res.orario || ''}">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Note</label>
+                        <textarea name="note" class="form-control" rows="3">${res.note || ''}</textarea>
+                    </div>
+                    <button class="btn btn-primary" type="submit">💾 Salva Modifiche</button>
+                </form>
+            `;
+        }
+        
+        modal.classList.add('active');
+        modal.style.display = 'flex';
+        
+        const editForm = document.getElementById('editReservationForm');
+        if (editForm) {
+            editForm.addEventListener('submit', async function (ev) {
+                ev.preventDefault();
+                const formData = new FormData(this);
+                const updated = Object.fromEntries(formData.entries());
+                updated.id = res.id;
+                
+                // Converte la data da YYYY-MM-DD a DD/MM/YYYY per App Script
+                if (updated.data && updated.data.includes('-')) {
+                    const [y, m, d] = updated.data.split('-');
+                    updated.data = `${d}/${m}/${y}`;
+                }
+                
+                try {
+                    const response = await fetch(KOI_CONFIG.API_URL, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            action: 'modifica',
+                            token: KOI_CONFIG.API_TOKEN,
+                            data: updated
+                        })
+                    });
+                    
+                    const result = await response.json();
+                    
+                    if (result.success) {
+                        KoiAPI.showToast('✅ Prenotazione aggiornata', 'success');
+                        modal.classList.remove('active');
+                        modal.style.display = 'none';
+                        setTimeout(() => KoiAPI.loadDashboardData(false), 1000);
+                    } else {
+                        KoiAPI.showToast('❌ Errore salvataggio: ' + (result.error || 'API fallita'), 'error');
+                    }
+                } catch (err) {
+                    console.error('❌ Errore invio:', err);
+                    KoiAPI.showToast('❌ Errore connessione', 'error');
+                }
+            });
+        }
+    });
+
+    // Gestione chiusura modale
+    document.querySelector('.modal-close')?.addEventListener('click', function() {
+        const modal = document.getElementById('detailModal');
+        if (modal) {
+            modal.classList.remove('active');
+            setTimeout(() => {
+                modal.style.display = 'none';
+            }, 300);
+        }
+    });
 });
 
 // Remove loading screen when data is ready
